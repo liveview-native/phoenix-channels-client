@@ -1,4 +1,4 @@
-# phoenix-channels
+# Phoenix Channels
 
 This crate implements a Phoenix Channels (v2) client in Rust.
 
@@ -25,11 +25,11 @@ if you do find any issues, please let us know on the issue tracker!
 
 ## Usage
 
-Right now this library has not been published to crates.io, so you need to pull it in as a git dependency:
+Add to your dependencies like so:
 
-```
+```ignore
 [dependencies]
-phoenix-channels = { git = "https://github.com/liveviewnative/phoenix-channels" }
+phoenix-channels-client = { version = "0.1" }
 ```
 
 You can also enable nightly features using `features = ["nightly"]`, currently this only is used to make use of a few
@@ -41,13 +41,13 @@ nightly APIs for operating on slices, which we use while parsing.
 use std::time::Duration;
 use serde_json::json;
 
-use phoenix_channels::{Config, Client};
+use phoenix_channels_client::{Config, Client};
 
 #[tokio::main]
 async fn main() {
     // Prepare configuration for the client
-    let mut config = Config::new("ws://127.0.0.1:4000/socket/websocket").unwrap();
-    config.set("secret", "12345");
+    let mut config = Config::new("ws://127.0.0.1:9002/socket/websocket").unwrap();
+    config.set("shared_secret", "supersecret");
 
     // Create a client
     let mut client = Client::new(config).unwrap();
@@ -56,7 +56,7 @@ async fn main() {
     client.connect().await.unwrap();
 
     // Join a channel with a timeout
-    let channel = client.join("topic:subtopic", Some(Duration::from_secs(15))).await.unwrap();
+    let channel = client.join("channel:mytopic", Some(Duration::from_secs(15))).await.unwrap();
 
     // Register an event handler, save the ref returned and use `off` to unsubscribe
     channel.on("some_event", |channel, payload| {
@@ -64,16 +64,16 @@ async fn main() {
     }).await.unwrap();
 
     // Send a message, waiting for a reply indefinitely
-    let result = channel.send("say", json!({ "name": "foo", "message": "hi"})).await.unwrap();
+    let result = channel.send("send_reply", json!({ "name": "foo", "message": "hi"})).await.unwrap();
 
     // Send a message, waiting for a reply with an optionatl timeout
-    let result = channel.send_with_timeout("say", json!({ "name": "foo", "message": "hello"}), Some(Duration::from_secs(5))).await.unwrap();
+    let result = channel.send_with_timeout("send_reply", json!({ "name": "foo", "message": "hello"}), Some(Duration::from_secs(5))).await.unwrap();
 
     // Send a message, not waiting for a reply
-    let result = channel.send_noreply("say", json!({ "name": "foo", "message": "jeez"})).await.unwrap();
+    let result = channel.send_noreply("send_noreply", json!({ "name": "foo", "message": "jeez"})).await.unwrap();
 
     // Leave the channel
-    channel.leave().await.unwrap();
+    channel.leave().await;
 }
 ```
 

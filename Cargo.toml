@@ -1,5 +1,5 @@
 [package]
-name = "phoenix-channels"
+name = "phoenix_channels_client"
 version = "0.1.0"
 rust-version = "1.64"
 authors = ["Paul Schoenfelder <paulschoenfelder@gmail.com>"]
@@ -7,7 +7,7 @@ description = "Provides an async-ready client for Phoenix Channels in Rust"
 repository = "https://github.com/liveviewnative/phoenix-channels"
 homepage = "https://github.com/liveviewnative/phoenix-channels"
 documentation = "https://github.com/liveviewnative/phoenix-channels"
-categories = ["Asynchronous", "Web programming"]
+categories = ["asynchronous", "web-programming:websocket"]
 keywords = ["phoenix", "channels", "elixir"]
 license = "Apache-2.0"
 readme = "README.md"
