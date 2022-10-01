@@ -66,7 +66,7 @@ async fn main() {
     // Send a message, waiting for a reply indefinitely
     let result = channel.send("say", json!({ "name": "foo", "message": "hi"})).await.unwrap();
 
-    // Send a message, waiting for a reply with an optionatl timeout
+    // Send a message, waiting for a reply with an optional timeout
     let result = channel.send_with_timeout("say", json!({ "name": "foo", "message": "hello"}), Some(Duration::from_secs(5))).await.unwrap();
 
     // Send a message, not waiting for a reply
