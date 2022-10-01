@@ -519,30 +519,20 @@ impl Message {
             return Err(MessageDecodingError::InvalidBinary);
         }
 
-        let byte = bytes
-            .take_first()
-            .ok_or(MessageDecodingError::UnexpectedEof)?;
-        let ty = BinaryMessageType::try_from(*byte)?;
+        let byte = take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)?;
+        let ty = BinaryMessageType::try_from(byte)?;
         match ty {
             BinaryMessageType::Broadcast => {
-                let topic_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let event_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
+                let topic_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let event_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let topic = str::from_utf8(
-                    bytes
-                        .take(..topic_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let event = str::from_utf8(
-                    bytes
-                        .take(..event_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let payload = Payload::Binary(bytes.to_vec());
@@ -553,44 +543,28 @@ impl Message {
                 }))
             }
             BinaryMessageType::Reply => {
-                let join_ref_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let ref_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let topic_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let status_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
+                let join_ref_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let ref_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let topic_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let status_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let join_ref = str::from_utf8(
-                    bytes
-                        .take(..join_ref_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, join_ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let reference = str::from_utf8(
-                    bytes
-                        .take(..ref_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let topic = str::from_utf8(
-                    bytes
-                        .take(..topic_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let status = str::from_utf8(
-                    bytes
-                        .take(..status_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, status_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let payload = Payload::Binary(bytes.to_vec());
@@ -604,34 +578,22 @@ impl Message {
                 }))
             }
             BinaryMessageType::Push => {
-                let join_ref_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let topic_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let event_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
+                let join_ref_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let topic_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let event_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let join_ref = str::from_utf8(
-                    bytes
-                        .take(..join_ref_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, join_ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let topic = str::from_utf8(
-                    bytes
-                        .take(..topic_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let event = str::from_utf8(
-                    bytes
-                        .take(..event_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let payload = Payload::Binary(bytes.to_vec());
@@ -645,6 +607,37 @@ impl Message {
             }
         }
     }
+}
+
+#[cfg(feature = "nightly")]
+#[inline(always)]
+fn take<'a>(bytes: &mut &'a [u8], n: usize) -> Option<&'a [u8]> {
+    bytes.take(..n)
+}
+
+#[cfg(not(feature = "nightly"))]
+#[inline]
+fn take<'a>(bytes: &mut &'a [u8], n: usize) -> Option<&'a [u8]> {
+    if n > bytes.len() {
+        return None;
+    }
+    let (taken, rest) = (*bytes).split_at(n);
+    *bytes = rest;
+    Some(taken)
+}
+
+#[cfg(feature = "nightly")]
+#[inline(always)]
+fn take_first(bytes: &mut &[u8]) -> Option<u8> {
+    bytes.take_first().copied()
+}
+
+#[cfg(not(feature = "nightly"))]
+#[inline]
+fn take_first(bytes: &mut &[u8]) -> Option<u8> {
+    let (first, rest) = (*bytes).split_first()?;
+    *bytes = rest;
+    Some(*first)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

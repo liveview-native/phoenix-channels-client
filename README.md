@@ -23,9 +23,6 @@ client in a non-async application, with the caveat that you still have to pull i
 This client is brand new, so it likely has bugs and missing features. Bug reports/feature requests are welcome though, so
 if you do find any issues, please let us know on the issue tracker!
 
-**NOTE:** This client is currently using a few nightly features for convenience, so a nightly compiler is required. The
-APIs being used are likely to be stabilized before long though, so we expect this to be a short term concern.
-
 ## Usage
 
 Right now this library has not been published to crates.io, so you need to pull it in as a git dependency:
@@ -34,6 +31,9 @@ Right now this library has not been published to crates.io, so you need to pull 
 [dependencies]
 phoenix-channels = { git = "https://github.com/liveviewnative/phoenix-channels" }
 ```
+
+You can also enable nightly features using `features = ["nightly"]`, currently this only is used to make use of a few
+nightly APIs for operating on slices, which we use while parsing.
 
 ## Example
 

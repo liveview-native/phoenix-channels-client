@@ -506,10 +506,14 @@ impl SocketListener {
     fn maintenance(&mut self) {
         debug!("performing maintenance on socket listener");
         // Clean up any timed out joins
-        for (sub, join) in self.joining.drain_filter(|_, join| join.timeout()) {
-            debug!("forcing timeout of join attempt {}", &sub);
-            drop(join);
-        }
+        self.joining.retain(|sub, join| {
+            if join.timeout() {
+                debug!("forcing timeout of join attempt {}", &sub);
+                false
+            } else {
+                true
+            }
+        })
     }
 }
 
