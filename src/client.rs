@@ -16,39 +16,42 @@ use tokio_tungstenite::tungstenite::{Error as SocketError, Message as SocketMess
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
+use crate::message::*;
 use crate::*;
 
 const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 
+/// Represents errors that occur when interacting with a [`Client`]
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
+    /// Occurs when the configured url is invalid for some reason
     #[error("invalid url: {0}")]
     InvalidUrl(Url),
-    #[error("invalid parameter, serialization failed: {0}")]
-    InvalidParameter(#[from] serde_json::Error),
-    #[error("invalid configuration")]
-    ConfigError,
+    /// Occurs when attempting to connect a client that is already connected
     #[error("already connected")]
     AlreadyConnected,
+    /// Occurs when attempting an operation on a disconnected client
     #[error("not connected")]
     NotConnected,
+    /// Occurs when the client fails due to a low-level connection error on the socket
     #[error("connection error: {0}")]
     ConnectionError(#[from] SocketError),
 }
 
-/// This struct contains configuration for Clients
+/// This struct contains configuration for [`Client`]
 #[derive(Clone)]
 pub struct Config {
     /// The endpoint URL to connect to, by default this is `ws://localhost:4000`
-    url: Url,
+    pub url: Url,
     /// The set of query parameters to send during connection setup. Defaults to an empty set.
-    params: FxHashMap<String, String>,
+    pub params: FxHashMap<String, String>,
     /// Determines whether or not to automatically reconnect on error/unexpected disconnect. Defaults to false.
-    reconnect: bool,
+    pub reconnect: bool,
     /// If `reconnect` is `true`, this determines the maximum number of reconnect attempts to make. Defaults to 3.
-    max_attempts: u8,
+    pub max_attempts: u8,
 }
 impl Config {
+    /// Create a new configuration from the given `url`
     pub fn new<E, U: TryInto<Url, Error = E>>(url: U) -> Result<Self, E> {
         Ok(Self {
             url: url.try_into()?,
@@ -58,16 +61,19 @@ impl Config {
         })
     }
 
+    /// Set whether or not to automatically reconnect the client on disconnect
     pub fn reconnect(&mut self, enabled: bool) -> &mut Self {
         self.reconnect = enabled;
         self
     }
 
+    /// Set the maximum number of connection attempts
     pub fn max_attempts(&mut self, max: u8) -> &mut Self {
         self.max_attempts = max;
         self
     }
 
+    /// Set a parameter to be sent on connect
     pub fn set<K: Into<String>, V: ToString>(&mut self, key: K, value: V) -> &mut Self {
         self.params.insert(key.into(), value.to_string());
         self
@@ -84,21 +90,15 @@ impl Default for Config {
     }
 }
 
-/// A `Client` manages the underlying WebSocket connection used to talk to Phoenix.
+/// A [`Client`] manages the underlying WebSocket connection used to talk to Phoenix.
 ///
-/// It acts as the primary interface (along with `Channel`) for working with Phoenix Channels.
+/// It acts as the primary interface (along with [`Channel`]) for working with Phoenix Channels.
 ///
-/// When a client is created, it is disconnected, and must be explicitly connected via `connect`.
+/// When a client is created, it is disconnected, and must be explicitly connected via [`Self::connect`].
 /// Once connected, a worker task is spawned that acts as the broker for messages being sent or
-/// received over the socket. The worker uses two different types of channels for communication
-/// across tasks/threads:
+/// received over the socket.
 ///
-/// * A broadcast channel, to which all members of the same topic subscribe. This is used to send
-/// messages to all members of a channel.
-/// * A mpsc channel, one for each channel member. This is used to send messages to specific `Channel`
-/// instances. These are created/destroyed in concert with their associated `Channel` clients.
-///
-/// Once connected, the more useful `Channel` instance can be obtained via `join`. Most functionality
+/// Once connected, the more useful [`Channel`] instance can be obtained via [`Self::join`]. Most functionality
 /// related to channels is exposed there.
 pub struct Client {
     config: Config,
@@ -271,6 +271,7 @@ impl Client {
 }
 
 /// This enum encodes the various commands that can be used to control the socket listener
+#[doc(hidden)]
 pub(super) enum ClientCommand {
     /// Tells the client to join `channel` to its desired topic, and then:
     ///
@@ -290,6 +291,7 @@ pub(super) enum ClientCommand {
 }
 
 /// Represents a command to the socket listener to join a channel
+#[doc(hidden)]
 pub(super) struct Join {
     /// The instant at which this join was created
     instant: Instant,
@@ -310,6 +312,7 @@ impl Join {
 }
 
 /// Represents a command to the socket listener to leave a channel
+#[doc(hidden)]
 pub(super) struct Leave {
     pub topic: String,
     pub channel_ref: ChannelRef,
@@ -506,10 +509,14 @@ impl SocketListener {
     fn maintenance(&mut self) {
         debug!("performing maintenance on socket listener");
         // Clean up any timed out joins
-        for (sub, join) in self.joining.drain_filter(|_, join| join.timeout()) {
-            debug!("forcing timeout of join attempt {}", &sub);
-            drop(join);
-        }
+        self.joining.retain(|sub, join| {
+            if join.timeout() {
+                debug!("forcing timeout of join attempt {}", &sub);
+                false
+            } else {
+                true
+            }
+        })
     }
 }
 

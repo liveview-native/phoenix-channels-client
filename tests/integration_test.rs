@@ -1,12 +1,28 @@
-#![feature(assert_matches)]
+#![cfg_attr(feature = "nightly", feature(assert_matches))]
 
-use std::assert_matches::assert_matches;
 use std::sync::Arc;
 use std::time::Duration;
 
-use phoenix_channels::{Client, Config, Payload};
+use phoenix_channels_client::{Client, Config, Payload};
 use serde_json::{json, Value};
 use tokio::time;
+
+#[cfg(feature = "nightly")]
+use std::assert_matches::assert_matches;
+
+#[cfg(not(feature = "nightly"))]
+macro_rules! assert_matches {
+    ($e:expr, $p:pat) => {
+        match $e {
+            $p => true,
+            other => panic!(
+                "assert_matches failed, expected {}, got: {:#?}",
+                stringify!($p),
+                &other
+            ),
+        }
+    };
+}
 
 #[tokio::test]
 async fn phoenix_channels_broadcast_test() {

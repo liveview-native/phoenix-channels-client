@@ -7,10 +7,10 @@ use tokio_tungstenite::tungstenite::Message as SocketMessage;
 
 use crate::{ChannelId, ChannelRef, SubscriptionRef};
 
+/// Occurs when decoding messages received from the server
+#[doc(hidden)]
 #[derive(Debug, thiserror::Error)]
 pub enum MessageDecodingError {
-    #[error("unknown encoding type: {0}")]
-    UnknownEncoding(u8),
     #[error("unexpected eof")]
     UnexpectedEof,
     #[error("invalid utf-8: {0}")]
@@ -23,11 +23,13 @@ pub enum MessageDecodingError {
     Json(#[from] serde_json::Error),
 }
 
+/// Occurs when encoding messages to send to the server
+#[doc(hidden)]
 #[derive(Debug, thiserror::Error)]
 #[error("unable to encode message")]
 pub struct MessageEncodingError;
 
-/// This represents the messages sent from Phoenix to clients over the socket
+/// This represents the messages sent to or from Phoenix over the socket
 ///
 /// Channels are implicitly multiplexed over a single connection, by using various
 /// fields of the message to determine who the receipients are.
@@ -35,6 +37,7 @@ pub struct MessageEncodingError;
 /// This structure should not be exposed to users of this library, instead, only the
 /// event, and payload are intended to be consumed directly. The topic name is only
 /// used when joining a channel, and the references are part of the multiplexing scheme.
+#[doc(hidden)]
 #[derive(Debug)]
 pub enum Message {
     Control(Control),
@@ -43,40 +46,6 @@ pub enum Message {
     Push(Push),
 }
 impl Message {
-    /// Reifies the `ChannelRef` to which this message is associated, if applicable.
-    pub fn channel_ref(&self) -> Option<ChannelRef> {
-        match self {
-            Self::Control(_) => None,
-            Self::Broadcast(_) => None,
-            Self::Reply(reply) => Some(reply.channel_ref()),
-            Self::Push(push) => Some(push.channel_ref()),
-        }
-    }
-
-    /// Returns the name of the channel/topic this message is associated with.
-    ///
-    /// The topic `phoenix` is reserved for special Phoenix events, e.g. joining/leaving a topic.
-    pub fn topic(&self) -> &str {
-        match self {
-            Self::Control(_) => "phoenix",
-            Self::Broadcast(msg) => msg.topic.as_str(),
-            Self::Reply(msg) => msg.topic.as_str(),
-            Self::Push(msg) => msg.topic.as_str(),
-        }
-    }
-
-    /// Returns the event this message represents.
-    ///
-    /// These can be either built-in Phoenix events, or custom user-defined events in string form.
-    pub fn event(&self) -> &Event {
-        match self {
-            Self::Control(ref msg) => &msg.event,
-            Self::Broadcast(ref msg) => &msg.event,
-            Self::Reply(ref msg) => &msg.event,
-            Self::Push(ref msg) => &msg.event,
-        }
-    }
-
     /// Returns a reference to the data associated with this message.
     pub fn payload(&self) -> &Payload {
         match self {
@@ -86,41 +55,10 @@ impl Message {
             Self::Push(ref msg) => &msg.payload,
         }
     }
-
-    /// Returns true if this message is a control message
-    pub fn is_control(&self) -> bool {
-        match self {
-            Self::Control(_) => true,
-            _ => false,
-        }
-    }
-
-    /// Returns true if this message is a broadcast message
-    pub fn is_broadcast(&self) -> bool {
-        match self {
-            Self::Broadcast(_) => true,
-            _ => false,
-        }
-    }
-
-    /// Returns true if this message is a reply to a previous message
-    pub fn is_reply(&self) -> bool {
-        match self {
-            Self::Reply(_) => true,
-            _ => false,
-        }
-    }
-
-    /// Returns true if this message is a push
-    pub fn is_push(&self) -> bool {
-        match self {
-            Self::Push(_) => true,
-            _ => false,
-        }
-    }
 }
 
 /// Represents a reply to a message
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct Control {
     /// The event for this message type is always a `PhoenixEvent`
@@ -131,6 +69,7 @@ pub struct Control {
 }
 
 /// Represents a message broadcast to all members of a channel
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct Broadcast {
     pub topic: String,
@@ -145,6 +84,7 @@ impl Broadcast {
 }
 
 /// Represents a reply to a message
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct Reply {
     pub topic: String,
@@ -175,6 +115,7 @@ impl Reply {
 }
 
 /// Represents a message being sent by a specific member of a channel, to the other members of the channel
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct Push {
     pub topic: String,
@@ -519,30 +460,20 @@ impl Message {
             return Err(MessageDecodingError::InvalidBinary);
         }
 
-        let byte = bytes
-            .take_first()
-            .ok_or(MessageDecodingError::UnexpectedEof)?;
-        let ty = BinaryMessageType::try_from(*byte)?;
+        let byte = take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)?;
+        let ty = BinaryMessageType::try_from(byte)?;
         match ty {
             BinaryMessageType::Broadcast => {
-                let topic_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let event_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
+                let topic_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let event_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let topic = str::from_utf8(
-                    bytes
-                        .take(..topic_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let event = str::from_utf8(
-                    bytes
-                        .take(..event_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let payload = Payload::Binary(bytes.to_vec());
@@ -553,44 +484,28 @@ impl Message {
                 }))
             }
             BinaryMessageType::Reply => {
-                let join_ref_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let ref_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let topic_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let status_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
+                let join_ref_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let ref_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let topic_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let status_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let join_ref = str::from_utf8(
-                    bytes
-                        .take(..join_ref_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, join_ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let reference = str::from_utf8(
-                    bytes
-                        .take(..ref_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let topic = str::from_utf8(
-                    bytes
-                        .take(..topic_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let status = str::from_utf8(
-                    bytes
-                        .take(..status_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, status_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let payload = Payload::Binary(bytes.to_vec());
@@ -604,34 +519,22 @@ impl Message {
                 }))
             }
             BinaryMessageType::Push => {
-                let join_ref_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let topic_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
-                let event_size = *bytes
-                    .take_first()
-                    .ok_or(MessageDecodingError::UnexpectedEof)?
-                    as usize;
+                let join_ref_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let topic_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
+                let event_size =
+                    take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let join_ref = str::from_utf8(
-                    bytes
-                        .take(..join_ref_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, join_ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let topic = str::from_utf8(
-                    bytes
-                        .take(..topic_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let event = str::from_utf8(
-                    bytes
-                        .take(..event_size)
-                        .ok_or(MessageDecodingError::UnexpectedEof)?,
+                    take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?;
                 let payload = Payload::Binary(bytes.to_vec());
@@ -645,6 +548,37 @@ impl Message {
             }
         }
     }
+}
+
+#[cfg(feature = "nightly")]
+#[inline(always)]
+fn take<'a>(bytes: &mut &'a [u8], n: usize) -> Option<&'a [u8]> {
+    bytes.take(..n)
+}
+
+#[cfg(not(feature = "nightly"))]
+#[inline]
+fn take<'a>(bytes: &mut &'a [u8], n: usize) -> Option<&'a [u8]> {
+    if n > bytes.len() {
+        return None;
+    }
+    let (taken, rest) = (*bytes).split_at(n);
+    *bytes = rest;
+    Some(taken)
+}
+
+#[cfg(feature = "nightly")]
+#[inline(always)]
+fn take_first(bytes: &mut &[u8]) -> Option<u8> {
+    bytes.take_first().copied()
+}
+
+#[cfg(not(feature = "nightly"))]
+#[inline]
+fn take_first(bytes: &mut &[u8]) -> Option<u8> {
+    let (first, rest) = (*bytes).split_first()?;
+    *bytes = rest;
+    Some(*first)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -677,6 +611,7 @@ impl TryFrom<u8> for BinaryMessageType {
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ReplyStatus {
     Ok,
@@ -716,6 +651,7 @@ impl fmt::Display for ReplyStatus {
     }
 }
 
+/// Contains the response payload sent to/received from Phoenix
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Payload {
     /// This payload type is used for all non-binary messages

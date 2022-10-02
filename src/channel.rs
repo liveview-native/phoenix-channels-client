@@ -15,14 +15,18 @@ use tokio::task;
 use tokio::time;
 
 use crate::client::{ClientCommand, Leave};
-use crate::*;
+use crate::message::*;
 
+/// Represents errors that occur when interacting with [`Channel`]
 #[derive(Debug, thiserror::Error)]
 pub enum ChannelError {
+    /// Occurs when you perform an operation on a channel that is closing/closed
     #[error("channel is closed")]
     Closed,
-    #[error("join failed due to timeout")]
+    /// Occurs when a join/send operation times out
+    #[error("operation failed due to timeout")]
     Timeout,
+    /// Occurs when the join message for a channel receives an error reply from the server
     #[error("error occurred while joining channel: {0}")]
     JoinFailed(Box<Payload>),
 }
@@ -37,12 +41,16 @@ impl From<tokio::sync::oneshot::error::RecvError> for ChannelError {
     }
 }
 
+/// Represents errors that occur when sending messages via [`Channel`]
 #[derive(Debug, thiserror::Error)]
 pub enum SendError {
+    /// Occurs when sending a message that waits for a reply times out
     #[error("timeout occurred waiting for reply")]
     Timeout,
+    /// Occurs when sending a message to a closing/closed channel
     #[error("channel is closed")]
     Closed,
+    /// Occurs when the the reply to a sent message contains an error produced by the server
     #[error("received an error reply from the server: {0}")]
     Reply(Box<Payload>),
 }
@@ -63,6 +71,7 @@ impl<T> From<tokio::sync::mpsc::error::SendError<T>> for SendError {
 }
 
 /// A simple copyable reference to a specific topic
+#[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ChannelId(u32);
 impl ChannelId {
@@ -84,6 +93,7 @@ impl fmt::Display for ChannelId {
 /// The channel id is derived from the hash of the topic name; and the channel
 /// reference is unique for each joiner, i.e. when you have multiple joins to
 /// the same channel.
+#[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ChannelRef {
     pub(crate) channel_id: ChannelId,
@@ -127,6 +137,7 @@ impl fmt::Display for SubscriptionRef {
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u32)]
 pub(crate) enum ChannelStatus {
@@ -396,7 +407,7 @@ impl Channel {
     }
 
     /// Leaves this channel
-    pub async fn leave(self) {
+    pub async fn leave(&self) {
         debug!("leaving channel {}", &self.id);
         let message = Leave {
             topic: self.topic.deref().clone(),
@@ -413,6 +424,7 @@ impl Channel {
     }
 }
 
+#[doc(hidden)]
 pub(super) struct ChannelJoined {
     /// We send a weak reference to the channel, since we consider the ability to
     /// upgrade it to a strong reference a signal that the channel should be kept
