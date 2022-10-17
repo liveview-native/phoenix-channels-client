@@ -27,9 +27,16 @@ if you do find any issues, please let us know on the issue tracker!
 
 Add to your dependencies like so:
 
-```ignore
+```toml
 [dependencies]
-phoenix-channels-client = { version = "0.1" }
+phoenix_channels_client = { version = "0.1" }
+```
+
+And in your `.cargo/config.toml`, turn on unstable tokio features we need for eg. cooperative scheduling:
+
+```toml
+[build]
+rustflags = ["--cfg", "tokio_unstable"]
 ```
 
 You can also enable nightly features using `features = ["nightly"]`, currently this only is used to make use of a few
