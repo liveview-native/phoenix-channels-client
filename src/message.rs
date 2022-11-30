@@ -32,7 +32,7 @@ pub struct MessageEncodingError;
 /// This represents the messages sent to or from Phoenix over the socket
 ///
 /// Channels are implicitly multiplexed over a single connection, by using various
-/// fields of the message to determine who the receipients are.
+/// fields of the message to determine who the recipients are.
 ///
 /// This structure should not be exposed to users of this library, instead, only the
 /// event, and payload are intended to be consumed directly. The topic name is only
