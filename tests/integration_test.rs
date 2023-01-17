@@ -32,11 +32,8 @@ async fn phoenix_channels_broadcast_test() {
         .is_test(true)
         .try_init();
 
-    let mut config = Config::new("ws://127.0.0.1:9002/socket/websocket").unwrap();
-    config.reconnect(false).set("shared_secret", "supersecret");
-
-    let mut client1 = Client::new(config.clone()).unwrap();
-    client1.connect().await.unwrap();
+    let config = config();
+    let mut client1 = connected_client(config.clone()).await;
 
     let channel1 = client1
         .join("channel:mytopic", Some(Duration::from_secs(5)))
@@ -59,8 +56,7 @@ async fn phoenix_channels_broadcast_test() {
         .await
         .unwrap();
 
-    let mut client2 = Client::new(config).unwrap();
-    client2.connect().await.unwrap();
+    let mut client2 = connected_client(config).await;
 
     let channel2 = client2
         .join("channel:mytopic", Some(Duration::from_secs(5)))
@@ -102,12 +98,8 @@ async fn phoenix_channels_reply_test() {
         .filter_level(log::LevelFilter::Debug)
         .is_test(true)
         .try_init();
-
-    let mut config = Config::new("ws://127.0.0.1:9002/socket/websocket").unwrap();
-    config.reconnect(false).set("shared_secret", "supersecret");
-
-    let mut client = Client::new(config.clone()).unwrap();
-    client.connect().await.unwrap();
+    let config = config();
+    let mut client = connected_client(config).await;
 
     let channel = client
         .join("channel:mytopic", Some(Duration::from_secs(5)))
@@ -125,3 +117,26 @@ async fn phoenix_channels_reply_test() {
 
     assert_eq!(result, Payload::Value(expected));
 }
+
+async fn connected_client(config: Config) -> Client {
+    let mut client = Client::new(config).unwrap();
+    client.connect().await.unwrap();
+
+    client
+}
+
+fn config() -> Config {
+    let mut config = Config::new(format!("ws://{HOST}:9002/socket/websocket").as_str()).unwrap();
+
+    config
+        .reconnect(false)
+        .set("shared_secret", "supersecret");
+
+    config
+}
+
+#[cfg(target_os = "android")]
+const HOST: &str = "10.0.2.2";
+
+#[cfg(not(target_os = "android"))]
+const HOST: &str = "127.0.0.1";

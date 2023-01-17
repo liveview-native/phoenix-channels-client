@@ -20,6 +20,7 @@ jobs:
         with:
           toolchain: stable
           target: x86_64-apple-ios
+          default: true
       - name: Set up Elixir
         run: brew install elixir
       - name: Cache Cargo
