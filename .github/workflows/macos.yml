@@ -1,0 +1,54 @@
+name: macos
+
+on: push
+
+env:
+  CARGO_TERM_COLOR: always
+  TOOLCHAIN: stable
+
+jobs:
+  integration_tests:
+    runs-on: macos-12
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust Stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Set up Elixir
+        run: brew install elixir
+      - name: Cache Cargo
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Restore dependencies cache
+        uses: actions/cache@v3
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+      - name: Build phoenix_channels_client
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      - name: Install hex
+        run: mix local.hex --force
+      - name: Install rebar3
+        run: mix local.rebar --force
+      - name: Install test server dependencies
+        working-directory: ./tests/support/test_server
+        run: mix deps.get
+      - name: Build test server
+        working-directory: ./tests/support/test_server
+        run: mix compile
+      - name: Run test server in background
+        working-directory: ./tests/support/test_server
+        run: mix phx.server &
+      - name: Test phoenix_channel_clients
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
