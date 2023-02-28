@@ -22,8 +22,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: |
-            ~/.cargo/registry
+            ~/.cargo/bin
             ~/.cargo/git
+            ~/.cargo/registry
           key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Restore dependencies cache
         uses: actions/cache@v3
