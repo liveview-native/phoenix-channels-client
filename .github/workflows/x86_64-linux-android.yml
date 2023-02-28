@@ -9,6 +9,8 @@ env:
   ANDROID_SYSTEM_IMAGE_PACKAGE: system-images;android-33;google_apis_playstore;x86_64
   TOOLCHAIN: nightly
   CARGO_TERM_COLOR: always
+  CARGO_NDK_REV: 8478e58c
+  CARGO_TAI_REV: 90f487f
 
 jobs:
   integration_tests:
@@ -23,23 +25,23 @@ jobs:
           toolchain: nightly
           target: x86_64-linux-android
           default: true
-      - name: Install cargo-ndk
-        run: cargo install --git  https://github.com/bbqsrc/cargo-ndk --rev 8478e58c
-      - name: Install cargo-tai
-        run: cargo install --git https://github.com/liveviewnative/cargo_tai --branch liveviewnative --rev 90f487f
-      - name: Set up Elixir
-        run: brew install elixir
-      - name: Set up JDK 17
-        uses: actions/setup-java@v1
-        with:
-          java-version: 17
       - name: Cache Cargo
         uses: actions/cache@v2
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${CARGO_NDK_REV}-${CARGO_TAI_REV}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install cargo-ndk
+        run: cargo install --git  https://github.com/bbqsrc/cargo-ndk --rev ${CARGO_NDK_REV}
+      - name: Install cargo-tai
+        run: cargo install --git https://github.com/liveviewnative/cargo_tai --branch liveviewnative --rev ${CARGO_TAI_REV}
+      - name: Set up Elixir
+        run: brew install elixir
+      - name: Set up JDK 17
+        uses: actions/setup-java@v1
+        with:
+          java-version: 17
       - name: Restore dependencies cache
         uses: actions/cache@v3
         with:
