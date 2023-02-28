@@ -24,9 +24,9 @@ jobs:
           target: x86_64-linux-android
           default: true
       - name: Install cargo-ndk
-        run: cargo install --git  https://github.com/bbqsrc/cargo-ndk
+        run: cargo install --git  https://github.com/bbqsrc/cargo-ndk --rev 8478e58c
       - name: Install cargo-tai
-        run: cargo install --git https://github.com/liveviewnative/cargo_tai --branch liveviewnative
+        run: cargo install --git https://github.com/liveviewnative/cargo_tai --branch liveviewnative --rev 90f487f
       - name: Set up Elixir
         run: brew install elixir
       - name: Set up JDK 17
