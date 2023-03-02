@@ -4,6 +4,7 @@ name: x86_64-linux-android
 on: push
 
 env:
+  ANDROID_COMMANDLINE_TOOLS_VERSION: 9477386
   ANDROID_API: 33
   ANDROID_NDK_VERSION: 25.2.9519653
   ANDROID_SYSTEM_IMAGE_PACKAGE: system-images;android-33;google_apis_playstore;x86_64
@@ -84,25 +85,41 @@ jobs:
       - name: Build test server
         working-directory: ./tests/support/test_server
         run: mix compile
+      - name: Cache android
+        id: cache-android
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-android
+        with:
+          path: ~/android
+          key: ${{ runner.os }}-android-${{ env.cache-name }}-${{ env.ANDROID_COMMANDLINE_TOOLS_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-android-${{ env.cache-name }}-${{ env.ANDROID_COMMANDLINE_TOOLS_VERSION }}
+            ${{ runner.os }}-mix-
       - name: Download Android Command Line Tools
         run: |
-          cd $HOME
-          mkdir -p android/cmdline-tools
+          if [ ! -d "$HOME/android/cmdline-tools/${ANDROID_COMMANDLINE_TOOLS_VERSION}" ]; then
+            cd $HOME
+            # clear old version if it exists
+            rm -rf android
+            mkdir -p android/cmdline-tools
+            cd android/cmdline-tools
+            PACKAGE=commandlinetools-mac-${ANDROID_COMMANDLINE_TOOLS_VERSION}_latest
+            wget https://dl.google.com/android/repository/${PACKAGE}.zip
+            unzip ${PACKAGE}.zip
+            rm ${PACKAGE}.zip
+            mv cmdline-tools ${ANDROID_COMMANDLINE_TOOLS_VERSION}
+            ln -sf ${ANDROID_COMMANDLINE_TOOLS_VERSION} latest
+          fi
+      - name: Add Android home and subdirectories to environment
+        run: |
           export ANDROID_HOME="$HOME/android"
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          cd android/cmdline-tools
-          PACKAGE=commandlinetools-mac-9477386_latest
-          wget https://dl.google.com/android/repository/${PACKAGE}.zip
-          unzip ${PACKAGE}.zip
-          rm ${PACKAGE}.zip
-          mv cmdline-tools latest
-          find $PWD -name sdkmanager
           echo "${ANDROID_HOME}/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "${ANDROID_HOME}/emulator" >> $GITHUB_PATH
           echo "${ANDROID_HOME}/platform-tools" >> $GITHUB_PATH
       - name: sdkmanager setup
         run: |
-          sdkmanager --list
           yes | sdkmanager --licenses
           sdkmanager --install "platform-tools" \
                                "platforms;android-${ANDROID_API}" \
