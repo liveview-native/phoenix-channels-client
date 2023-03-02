@@ -45,16 +45,31 @@ jobs:
           fi
       - name: Set up Elixir
         run: brew install elixir
+      - name: Cache deps
+        id: cache-deps
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-elixir-deps
+        with:
+          path: tests/support/test_server/deps
+          key: ${{ runner.os }}-mix-${{ env.cache-name }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ env.cache-name }}-
+      - name: Cache compiled build
+        id: cache-build
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-compiled-build
+        with:
+          path: tests/support/test_server/_build
+          key: ${{ runner.os }}-mix-${{ env.cache-name }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ env.cache-name }}-
+            ${{ runner.os }}-mix-
       - name: Set up JDK 17
         uses: actions/setup-java@v1
         with:
           java-version: 17
-      - name: Restore dependencies cache
-        uses: actions/cache@v3
-        with:
-          path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
       - name: Build phoenix_channels_client
         uses: actions-rs/cargo@v1
         with:
