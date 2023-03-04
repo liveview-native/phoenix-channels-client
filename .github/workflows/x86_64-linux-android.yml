@@ -8,6 +8,7 @@ env:
   ANDROID_API: 33
   ANDROID_NDK_VERSION: 25.2.9519653
   ANDROID_SYSTEM_IMAGE_PACKAGE: system-images;android-33;google_apis_playstore;x86_64
+  OPENSSL_VERSION: 1.1.1s
   TOOLCHAIN: nightly
   CARGO_TERM_COLOR: always
   CARGO_NDK_REV: "8478e58"
@@ -131,15 +132,40 @@ jobs:
       - name: Add NDK clang to PATH
         run: |
           echo "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/darwin-x86_64/bin" >> $GITHUB_PATH
-      - name: Compile OpenSSL for NDK
+      - name: Cache OpenSSL
+        id: cache-openssl
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-openssl
+        with:
+          path: ~/openssl
+          key: ${{ runner.os }}-${{ env.cache-name }}-2-${{ env.OPENSSL_VERSION }}-${{ env.ANDROID_NDK_VERSION }}
+      - if: steps.cache-openssl.outputs.cache-hit != 'true'
+        name: Download OpenSSL
         run: |
-          wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz -O - | tar -xz
+          if [[ ! -d "${HOME}/openssl/${OPENSSL_VERSION}" ]]; then
+            cd $HOME
+            # clear old version if it exists
+            rm -rf openssl
+            mkdir openssl
+            cd openssl 
+            PACKAGE=openssl-${OPENSSL_VERSION}
+            wget https://www.openssl.org/source/${PACKAGE}.tar.gz -O - | tar -xz
+            mv ${PACKAGE} ${OPENSSL_VERSION}
+            ln -s ${OPENSSL_VERSION} latest
+          fi
+      - if: steps.cache-openssl.outputs.cache-hit != 'true'
+        name: Compile OpenSSL for NDK
+        run: |  
+          # if above is not true, then downloaded, but not compiled against correct NDK version
           export CC=clang
-          cd openssl-1.1.1s
+          cd ~/openssl/latest
           ./Configure android64-x86_64
           make
-          echo "X86_64_LINUX_ANDROID_OPENSSL_INCLUDE_DIR=$PWD/include" >> $GITHUB_ENV
-          echo "X86_64_LINUX_ANDROID_OPENSSL_LIB_DIR=$PWD" >> $GITHUB_ENV
+      - name: Export OpenSSL for NDK
+        run: |  
+          echo "X86_64_LINUX_ANDROID_OPENSSL_INCLUDE_DIR=$HOME/openssl/latest/include" >> $GITHUB_ENV
+          echo "X86_64_LINUX_ANDROID_OPENSSL_LIB_DIR=$HOME/openssl/latest" >> $GITHUB_ENV
       - name: Create Android Virtual Device
         run: |
           echo no | \
@@ -164,7 +190,7 @@ jobs:
                           --android-ndk ${ANDROID_NDK_HOME} \
                           --android-sdk ${ANDROID_HOME} \
                           --envs LD_LIBRARY_PATH=lib \
-                          --libraries $PWD/openssl-1.1.1s/libcrypto.so.1.1 \
-                          --libraries $PWD/openssl-1.1.1s/libssl.so.1.1
+                          --libraries $HOME/openssl/latest/libcrypto.so.1.1 \
+                          --libraries $HOME/openssl/latest/libssl.so.1.1
           kill %2
           kill %1
