@@ -72,6 +72,14 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 17
+      - name: Cache target
+        id: cache-target
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-target
+        with:
+          path: target
+          key: ${{ github.workflow }}-${{ github.job }}-${{ env.cache-name }}-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_NDK_REV }}-${{ env.CARGO_TAI_REV }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Build phoenix_channels_client
         uses: actions-rs/cargo@v1
         with:
