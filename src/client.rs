@@ -143,6 +143,12 @@ impl Client {
         })
     }
 
+    /// Gets a mutable reference to this client's configuration
+    #[inline]
+    pub fn config_mut(&mut self) -> &mut Config {
+        &mut self.config
+    }
+
     /// Connects this client to the configured Phoenix Channels endpoint
     ///
     /// This function must be called before using the client to join channels, etc.
