@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use phoenix_channels_client::{Client, Config, Payload};
+use phoenix_channels_client::{ChannelError, Client, Config, Payload};
 use serde_json::{json, Value};
 use tokio::time;
 
@@ -25,6 +25,57 @@ macro_rules! assert_matches {
 }
 
 #[tokio::test]
+async fn phoenix_channels_join_payload_test() {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let config = config();
+    let client = connected_client(config).await;
+
+    let channel = client
+        .join("channel:mytopic", Some(json!({ "key": "value" }).into()), Some(Duration::from_secs(5)))
+        .await
+        .unwrap();
+
+    // channel
+    //     .on("send_join_payload", move |_channel, payload| {
+    //         assert_eq!(payload, &Payload::Value(json!({ "key": "value"})));
+    //
+    //         on_notify.notify_one();
+    //     })
+    //     .await
+    //     .unwrap();
+
+    let payload = channel.send_with_timeout("send_join_payload", json!({}), Some(Duration::from_secs(5))).await.unwrap();
+    assert_eq!(payload, Payload::Value(json!({ "key": "value" })));
+}
+
+#[tokio::test]
+async fn phoenix_channels_join_error_test() {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let config = config();
+    let client = connected_client(config).await;
+
+    let result = client
+        .join("channel:error", Some(json!({ "key": "value" }).into()), Some(Duration::from_secs(5)))
+        .await;
+
+    assert!(result.is_err());
+
+    let channel_error = result.err().unwrap();
+
+    assert_eq!(channel_error, ChannelError::JoinFailed(Box::new(Payload::Value(json!({"reason": { "key": "value"}})))));
+}
+
+#[tokio::test]
 async fn phoenix_channels_broadcast_test() {
     let _ = env_logger::builder()
         .parse_default_env()
@@ -33,10 +84,10 @@ async fn phoenix_channels_broadcast_test() {
         .try_init();
 
     let config = config();
-    let mut client1 = connected_client(config.clone()).await;
+    let client1 = connected_client(config.clone()).await;
 
     let channel1 = client1
-        .join("channel:mytopic", Some(Duration::from_secs(5)))
+        .join("channel:mytopic", None, Some(Duration::from_secs(5)))
         .await
         .unwrap();
     assert!(channel1.is_joined());
@@ -56,10 +107,10 @@ async fn phoenix_channels_broadcast_test() {
         .await
         .unwrap();
 
-    let mut client2 = connected_client(config).await;
+    let client2 = connected_client(config).await;
 
     let channel2 = client2
-        .join("channel:mytopic", Some(Duration::from_secs(5)))
+        .join("channel:mytopic", None, Some(Duration::from_secs(5)))
         .await
         .unwrap();
     assert!(channel2.is_joined());
@@ -99,10 +150,10 @@ async fn phoenix_channels_reply_test() {
         .is_test(true)
         .try_init();
     let config = config();
-    let mut client = connected_client(config).await;
+    let client = connected_client(config).await;
 
     let channel = client
-        .join("channel:mytopic", Some(Duration::from_secs(5)))
+        .join("channel:mytopic", None, Some(Duration::from_secs(5)))
         .await
         .unwrap();
     assert!(channel.is_joined());

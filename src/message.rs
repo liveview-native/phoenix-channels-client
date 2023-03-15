@@ -701,6 +701,11 @@ impl From<Vec<u8>> for Payload {
         Self::Binary(value)
     }
 }
+impl Default for Payload {
+    fn default() -> Self {
+        Payload::Value(Value::Object(serde_json::Map::new()))
+    }
+}
 impl fmt::Display for Payload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
