@@ -226,6 +226,7 @@ impl Client {
     pub async fn join(
         &self,
         topic: &str,
+        payload: Option<Payload>,
         timeout: Option<Duration>,
     ) -> Result<Arc<Channel>, ChannelError> {
         let join_ref = self.next_join_ref.fetch_add(1, Ordering::SeqCst);
@@ -238,7 +239,7 @@ impl Client {
         // Create a channel which is pending join. The `on_join` channel is used to tell
         // the channel listener that the channel was successfully joined, and to communicate
         // some last minute details
-        let (channel, on_join) = Channel::new(topic.to_string(), join_ref, channel_tx);
+        let (channel, on_join) = Channel::new(topic.to_string(), payload, join_ref, channel_tx);
 
         let join = Box::new(Join {
             instant: Instant::now(),
@@ -380,7 +381,7 @@ impl SocketListener {
         let message = Message::Push(Push {
             topic: channel.topic().to_string(),
             event: PhoenixEvent::Join.into(),
-            payload: Value::Object(serde_json::Map::new()).into(),
+            payload: channel.payload().clone().unwrap_or_default(),
             join_ref: subscription.channel_ref.join_ref.to_string(),
             reference: Some(subscription.reference.to_string()),
         });

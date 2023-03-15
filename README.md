@@ -62,8 +62,8 @@ async fn main() {
     // Connect the client
     client.connect().await.unwrap();
 
-    // Join a channel with a timeout
-    let channel = client.join("channel:mytopic", Some(Duration::from_secs(15))).await.unwrap();
+    // Join a channel with no params and a timeout
+    let channel = client.join("channel:mytopic", None, Some(Duration::from_secs(15))).await.unwrap();
 
     // Register an event handler, save the ref returned and use `off` to unsubscribe
     channel.on("some_event", |channel, payload| {

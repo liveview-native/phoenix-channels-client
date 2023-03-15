@@ -18,7 +18,7 @@ use crate::client::{ClientCommand, Leave};
 use crate::message::*;
 
 /// Represents errors that occur when interacting with [`Channel`]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ChannelError {
     /// Occurs when you perform an operation on a channel that is closing/closed
     #[error("channel is closed")]
@@ -188,6 +188,8 @@ pub struct Channel {
     status: Arc<AtomicU32>,
     /// The name of the channel topic this handle is joined to
     topic: Arc<String>,
+    /// The payload that is sent when `topic` is joined
+    payload: Option<Payload>,
     /// Used to send messages to the socket
     client: mpsc::Sender<ClientCommand>,
     /// Used to issue commands to the channel listener
@@ -198,6 +200,7 @@ pub struct Channel {
 impl Channel {
     pub(crate) fn new(
         topic: String,
+        payload: Option<Payload>,
         join_ref: u32,
         client: mpsc::Sender<ClientCommand>,
     ) -> (Arc<Self>, oneshot::Sender<ChannelJoined>) {
@@ -231,6 +234,7 @@ impl Channel {
             join_ref,
             status,
             topic,
+            payload,
             client,
             listener: commands_tx,
             next_reference_id,
@@ -242,6 +246,11 @@ impl Channel {
     /// Returns the topic this channel is connected to
     pub fn topic(&self) -> &str {
         self.topic.as_str()
+    }
+
+    /// Returns the payload sent to the channel when joined
+    pub fn payload(&self) -> &Option<Payload> {
+        &self.payload
     }
 
     /// Returns true if this channel is currently joined to its topic
