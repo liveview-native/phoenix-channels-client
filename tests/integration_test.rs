@@ -26,12 +26,12 @@ macro_rules! assert_matches {
 
 #[tokio::test]
 async fn phoenix_channels_join_json_payload_test() {
-    phoenix_channels_join_payload_test("json", Payload::Value(json!({ "key": "value" }))).await;
+    phoenix_channels_join_payload_test("json", json_payload()).await;
 }
 
 #[tokio::test]
 async fn phoenix_channels_join_binary_payload_test() {
-    phoenix_channels_join_payload_test("binary", Payload::Binary(vec![0, 1, 2, 3])).await;
+    phoenix_channels_join_payload_test("binary", binary_payload()).await;
 }
 
 async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
@@ -56,12 +56,12 @@ async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
 
 #[tokio::test]
 async fn phoenix_channels_join_json_error_test() {
-    phoenix_channels_join_error_test("json", Payload::Value(json!({ "key": "value" }))).await;
+    phoenix_channels_join_error_test("json", json_payload()).await;
 }
 
 #[tokio::test]
 async fn phoenix_channels_join_binary_error_test() {
-    phoenix_channels_join_error_test("binary", Payload::Binary(vec![0, 1, 2, 3])).await;
+    phoenix_channels_join_error_test("binary", binary_payload()).await;
 }
 
 async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
@@ -88,12 +88,12 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
 
 #[tokio::test]
 async fn phoenix_channels_json_broadcast_test() {
-    phoenix_channels_broadcast_test("json", Payload::Value(json!({ "status": "testng", "num": 1i64 }))).await;
+    phoenix_channels_broadcast_test("json", json_payload()).await;
 }
 
 #[tokio::test]
 async fn phoenix_channels_binary_broadcast_test() {
-    phoenix_channels_broadcast_test("binary", Payload::Binary(vec![0, 1, 2, 3])).await;
+    phoenix_channels_broadcast_test("binary", binary_payload()).await;
 }
 
 async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
@@ -146,7 +146,17 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
 }
 
 #[tokio::test]
-async fn phoenix_channels_reply_test() {
+async fn phoenix_channels_send_json_test() {
+    phoenix_channels_send_test("json", json_payload()).await;
+}
+
+#[tokio::test]
+async fn phoenix_channels_send_binary_test() {
+    phoenix_channels_send_test("binary", binary_payload()).await;
+}
+
+
+async fn phoenix_channels_send_test(subtopic: &str, payload: Payload) {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -155,21 +165,53 @@ async fn phoenix_channels_reply_test() {
     let config = config();
     let client = connected_client(config).await;
 
+    let topic = format!("channel:send:{}", subtopic);
     let channel = client
-        .join("channel:mytopic", None, Some(Duration::from_secs(5)))
+        .join(&topic, None, Some(Duration::from_secs(5)))
         .await
         .unwrap();
     assert!(channel.is_joined());
 
-    let status = "testing".to_string();
-    let num = 1i64;
-    let expected = json!({ "status": status, "num": num });
-    let result = channel
-        .send_with_timeout("send_reply", expected.clone(), Some(Duration::from_secs(5)))
+    let reply = channel
+        .send("send_reply", payload.clone())
         .await
         .unwrap();
 
-    assert_eq!(result, Payload::Value(expected));
+    assert_eq!(reply, payload);
+}
+
+#[tokio::test]
+async fn phoenix_channels_send_with_timeout_json_test() {
+    phoenix_channels_send_with_timeout_test("json", json_payload()).await;
+}
+
+#[tokio::test]
+async fn phoenix_channels_send_with_timeout_binary_test() {
+    phoenix_channels_send_with_timeout_test("binary", binary_payload()).await;
+}
+
+async fn phoenix_channels_send_with_timeout_test(subtopic: &str, payload: Payload) {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+    let config = config();
+    let client = connected_client(config).await;
+
+    let topic = format!("channel:send_with_timeout:{}", subtopic);
+    let channel = client
+        .join(&topic, None, Some(Duration::from_secs(5)))
+        .await
+        .unwrap();
+    assert!(channel.is_joined());
+
+    let reply = channel
+        .send_with_timeout("send_reply", payload.clone(), Some(Duration::from_secs(5)))
+        .await
+        .unwrap();
+
+    assert_eq!(reply, payload);
 }
 
 async fn connected_client(config: Config) -> Client {
@@ -187,6 +229,14 @@ fn config() -> Config {
         .set("shared_secret", "supersecret");
 
     config
+}
+
+fn json_payload() -> Payload {
+   Payload::Value(json!({ "status": "testng", "num": 1i64 }))
+}
+
+fn binary_payload() -> Payload {
+    Payload::Binary(vec![0, 1, 2, 3])
 }
 
 #[cfg(target_os = "android")]
