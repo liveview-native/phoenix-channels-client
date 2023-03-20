@@ -5,8 +5,8 @@ defmodule TestServer.Channel do
 
   alias Phoenix.Socket
 
-  def join("channel:error", payload, _socket) do
-    {:error, %{reason: payload}}
+  def join("channel:error:" <> _, payload, _socket) do
+    {:error, payload}
   end
 
   def join(topic, payload, socket) do

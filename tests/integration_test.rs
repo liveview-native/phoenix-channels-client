@@ -25,27 +25,16 @@ macro_rules! assert_matches {
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_payload_test() {
-    let _ = env_logger::builder()
-        .parse_default_env()
-        .filter_level(log::LevelFilter::Debug)
-        .is_test(true)
-        .try_init();
-
-    let config = config();
-    let client = connected_client(config).await;
-
-    let channel = client
-        .join("channel:mytopic", Some(json!({ "key": "value" }).into()), Some(Duration::from_secs(5)))
-        .await
-        .unwrap();
-
-    let payload = channel.send_with_timeout("send_join_payload", json!({}), Some(Duration::from_secs(5))).await.unwrap();
-    assert_eq!(payload, Payload::Value(json!({ "key": "value" })));
+async fn phoenix_channels_join_json_payload_test() {
+    phoenix_channels_join_payload_test("json", Payload::Value(json!({ "key": "value" }))).await;
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_error_test() {
+async fn phoenix_channels_join_binary_payload_test() {
+    phoenix_channels_join_payload_test("binary", Payload::Binary(vec![0, 1, 2, 3])).await;
+}
+
+async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -54,16 +43,20 @@ async fn phoenix_channels_join_error_test() {
 
     let config = config();
     let client = connected_client(config).await;
+    let topic = format!("channel:join:payload:{}", subtopic);
 
-    let result = client
-        .join("channel:error", Some(json!({ "key": "value" }).into()), Some(Duration::from_secs(5)))
-        .await;
+    let channel = client
+        .join(&topic, Some(payload.clone()), Some(Duration::from_secs(5)))
+        .await
+        .unwrap();
 
-    assert!(result.is_err());
+    let received_payload = channel.send_with_timeout("send_join_payload", json!({}), Some(Duration::from_secs(5))).await.unwrap();
+    assert_eq!(received_payload, payload);
+}
 
-    let channel_error = result.err().unwrap();
-
-    assert_eq!(channel_error, ChannelError::JoinFailed(Box::new(Payload::Value(json!({"reason": { "key": "value"}})))));
+#[tokio::test]
+async fn phoenix_channels_join_json_error_test() {
+    phoenix_channels_join_error_test("json", Payload::Value(json!({ "key": "value" }))).await;
 }
 
 #[tokio::test]
