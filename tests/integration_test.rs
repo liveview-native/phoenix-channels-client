@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use phoenix_channels_client::{ChannelError, Client, Config, Payload};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::time;
 
 #[cfg(feature = "nightly")]
@@ -67,7 +67,11 @@ async fn phoenix_channels_join_error_test() {
 }
 
 #[tokio::test]
-async fn phoenix_channels_broadcast_test() {
+async fn phoenix_channels_join_binary_error_test() {
+    phoenix_channels_join_error_test("binary", Payload::Binary(vec![0, 1, 2, 3])).await;
+}
+
+async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -75,61 +79,76 @@ async fn phoenix_channels_broadcast_test() {
         .try_init();
 
     let config = config();
-    let client1 = connected_client(config.clone()).await;
+    let client = connected_client(config).await;
 
-    let channel1 = client1
-        .join("channel:mytopic", None, Some(Duration::from_secs(5)))
+    let topic = format!("channel:error:{}", subtopic);
+    let result = client
+        .join(&topic, Some(payload.clone()), Some(Duration::from_secs(5)))
+        .await;
+
+    assert!(result.is_err());
+
+    let channel_error = result.err().unwrap();
+
+    assert_eq!(channel_error, ChannelError::JoinFailed(Box::new(payload)));
+}
+
+#[tokio::test]
+async fn phoenix_channels_json_broadcast_test() {
+    phoenix_channels_broadcast_test("json", Payload::Value(json!({ "status": "testng", "num": 1i64 }))).await;
+}
+
+#[tokio::test]
+async fn phoenix_channels_binary_broadcast_test() {
+    phoenix_channels_broadcast_test("binary", Payload::Binary(vec![0, 1, 2, 3])).await;
+}
+
+async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let config = config();
+    let receiver_client = connected_client(config.clone()).await;
+
+    let topic = format!("channel:broadcast:{}", subtopic);
+    let receiver_channel = receiver_client
+        .join(&topic, None, Some(Duration::from_secs(5)))
         .await
         .unwrap();
-    assert!(channel1.is_joined());
+    assert!(receiver_channel.is_joined());
 
-    let notify = Arc::new(tokio::sync::Notify::new());
-    let notify2 = notify.clone();
+    const EVENT: &'static str = "send_all";
+    let sent_payload = payload;
+    let expected_received_payload = sent_payload.clone();
+    let on_notify = Arc::new(tokio::sync::Notify::new());
+    let test_notify = on_notify.clone();
 
-    channel1
-        .on("send_all", move |channel, payload| {
-            println!(
-                "channel1 received {} from topic '{}'",
-                payload,
-                channel.topic()
-            );
-            notify.notify_one();
+    receiver_channel
+        .on(EVENT, move |_channel, payload| {
+            assert_eq!(payload, &expected_received_payload);
+
+            on_notify.notify_one();
         })
         .await
         .unwrap();
 
-    let client2 = connected_client(config).await;
+    let sender_client = connected_client(config).await;
 
-    let channel2 = client2
-        .join("channel:mytopic", None, Some(Duration::from_secs(5)))
+    let sender_channel = sender_client
+        .join(&topic, None, Some(Duration::from_secs(5)))
         .await
         .unwrap();
-    assert!(channel2.is_joined());
-    channel2
-        .on("myevent", |channel, payload| {
-            let mut map = serde_json::Map::new();
-            map.insert("status".to_string(), Value::String("testing".to_string()));
-            map.insert("num".to_string(), Value::Number(1u64.into()));
-            let expected = Payload::Value(Value::Object(map));
+    assert!(sender_channel.is_joined());
 
-            assert_eq!(payload, &expected);
-            println!(
-                "channel2 received {} from topic '{}'",
-                payload,
-                channel.topic()
-            );
-        })
+    sender_channel
+        .send_noreply(EVENT, sent_payload)
         .await
         .unwrap();
 
-    let status = "testing".to_string();
-    let num = 1i64;
-    channel2
-        .send_noreply("send_all", json!({ "status": status, "num": num }))
-        .await
-        .unwrap();
-
-    let result = time::timeout(Duration::from_secs(5), notify2.notified()).await;
+    let result = time::timeout(Duration::from_secs(5), test_notify.notified()).await;
     assert_matches!(result, Ok(_));
 }
 

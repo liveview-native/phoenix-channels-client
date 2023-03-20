@@ -394,10 +394,10 @@ impl Channel {
     pub async fn send_noreply<E, T>(&self, event: E, payload: T) -> Result<(), SendError>
     where
         E: Into<Event>,
-        T: Into<Value>,
+        T: Into<Payload>,
     {
         let event = event.into();
-        let payload = Payload::Value(payload.into());
+        let payload = payload.into();
 
         debug!(
             "sending event {:?} with payload {:#?}, replies ignored",
