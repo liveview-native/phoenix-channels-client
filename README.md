@@ -8,7 +8,6 @@ This crate implements a Phoenix Channels (v2) client in Rust.
 use cases already. The following is a list of known missing features:
 
 - [ ] Reconnect on error/disconnect
-- [ ] Ability to send binary messages, receive is implemented however
 - [ ] More thorough integration testing
 - [ ] Add support for v1 protocol
 
