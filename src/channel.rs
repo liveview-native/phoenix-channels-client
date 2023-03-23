@@ -1,10 +1,12 @@
 use std::fmt;
+use std::future::Future;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use futures::future::FutureExt;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use fxhash::FxHashMap;
 use log::debug;
 use serde_json::Value;
@@ -50,9 +52,12 @@ pub enum SendError {
     /// Occurs when sending a message to a closing/closed channel
     #[error("channel is closed")]
     Closed,
+    /// Occurs when channel-level error occurs while waiting for reply
+    #[error("channel error {0} occurred while waiting for reply")]
+    ChannelError(Arc<Payload>),
     /// Occurs when the the reply to a sent message contains an error produced by the server
     #[error("received an error reply from the server: {0}")]
-    Reply(Box<Payload>),
+    Reply(Arc<Payload>),
 }
 impl From<tokio::time::error::Elapsed> for SendError {
     fn from(_err: tokio::time::error::Elapsed) -> Self {
@@ -163,7 +168,7 @@ pub(crate) enum ChannelStatus {
 /// any blocking they do will block the async runtime from making progress on that thread. If
 /// you need to perform blocking work in the callback, you should invoke `tokio::spawn` with
 /// a new async task; or `tokio::spawn_blocking` for truly blocking tasks.
-pub type EventHandler = Box<dyn Fn(Arc<Channel>, &Payload) + Send + Sync + 'static>;
+pub type EventHandler = Box<dyn Fn(Arc<Channel>, Arc<Payload>) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// A `Channel` is created when one joins a topic via `Client::join`.
 ///
@@ -278,13 +283,10 @@ impl Channel {
     /// Returns a `SubscriptionRef` which can be used to unsubscribe the handler.
     ///
     /// You may also unsubscribe all handlers for `event` using `Channel::clear`.
-    pub async fn on<E, F>(&self, event: E, handler: F) -> Result<SubscriptionRef, ChannelError>
-    where
-        E: Into<Event>,
-        F: Fn(Arc<Channel>, &Payload) + Send + Sync + 'static,
+    pub async fn on<E>(&self, event: E, handler: EventHandler) -> Result<SubscriptionRef, ChannelError>
+    where E: Into<Event>
     {
         let event = event.into();
-        let handler = Box::new(handler);
         let (tx, rx) = oneshot::channel::<SubscriptionRef>();
         self.listener
             .send(Command::Subscribe(event.into(), handler, tx))
@@ -367,25 +369,59 @@ impl Channel {
             reference: Some(reference),
         };
 
-        let (tx, rx) = oneshot::channel();
+        // monitor the remote node first
+        // https://github.com/erlang/otp/blob/8485b59d10aa4192728f0c7d1f3704357f962fd3/lib/stdlib/src/gen.erl#L249
+        let (channel_error_sender, mut channel_error_receiver) = mpsc::channel(1);
+        let event = Event::Phoenix(PhoenixEvent::Error);
+        let channel_error_subscription_ref =
+            self
+                .on(
+                    event.clone(),
+                    Box::new(move |_handler_channel, payload: Arc<Payload>| {
+                        let boxed_channel_error_sender = Box::new(channel_error_sender.clone());
+                        let async_payload = payload.clone();
 
+                        Box::pin(async move {
+                            boxed_channel_error_sender.send(async_payload).await.unwrap()
+                        })
+                    })
+                )
+                .await
+                .unwrap();
+
+        let (call_sender, call_receiver) = oneshot::channel();
         self.client
-            .send(ClientCommand::Call(message, tx))
-            .then(|result| async move {
-                // Gather the reply
-                let reply = match result {
-                    Ok(_) => match timeout {
-                        Some(timeout) => time::timeout(timeout, rx).await??,
-                        None => rx.await?,
-                    },
-                    Err(err) => return Err(err.into()),
-                };
-                match reply.status {
-                    ReplyStatus::Ok => Ok(reply.payload),
-                    ReplyStatus::Error => Err(SendError::Reply(Box::new(reply.payload))),
-                }
-            })
-            .await
+            .send(ClientCommand::Call(message, call_sender))
+            .await?;
+
+        let future_result = call_receiver.map(|result| match result {
+            Ok(reply) => match reply.status {
+                ReplyStatus::Ok => Ok(reply.payload),
+                ReplyStatus::Error => Err(SendError::Reply(Arc::new(reply.payload))),
+            },
+            Err(_) => Err(SendError::Closed)
+        });
+
+        let future_option_timeout = Self::option_timeout(timeout, future_result);
+
+        let final_result = tokio::select! {
+            result = future_option_timeout => result,
+            Some(error) = channel_error_receiver.recv() => Err(SendError::ChannelError(error))
+        };
+
+        self.off(event, channel_error_subscription_ref).await;
+
+        final_result
+    }
+
+    async fn option_timeout<F>(timeout: Option<Duration>, future: F) -> Result<Payload, SendError> where F: Future<Output = Result<Payload, SendError>> {
+        match timeout {
+            Some(duration) => time::timeout(duration, future).map(|timeout_result| match timeout_result {
+                Ok(future_result) => future_result,
+                Err(_) => Err(SendError::Timeout)
+            }).await,
+            None => future.await
+        }
     }
 
     /// Sends `event` with `payload` to this channel, and returns `Ok` if successful.
@@ -434,6 +470,7 @@ impl Channel {
 }
 
 #[doc(hidden)]
+#[derive(Debug)]
 pub(super) struct ChannelJoined {
     /// We send a weak reference to the channel, since we consider the ability to
     /// upgrade it to a strong reference a signal that the channel should be kept
@@ -523,8 +560,10 @@ impl ChannelListener {
     /// Handles a received event
     async fn handle_event(&self, channel: Arc<Channel>, event: Event, payload: Payload) {
         if let Some(subscribers) = self.handlers.get(&event) {
+            let arc_payload = Arc::new(payload);
+
             for handler in subscribers.values() {
-                handler(channel.clone(), &payload);
+                tokio::spawn(handler(channel.clone(), arc_payload.clone()));
                 task::consume_budget().await
             }
         }

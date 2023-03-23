@@ -279,6 +279,7 @@ impl Client {
 
 /// This enum encodes the various commands that can be used to control the socket listener
 #[doc(hidden)]
+#[derive(Debug)]
 pub(super) enum ClientCommand {
     /// Tells the client to join `channel` to its desired topic, and then:
     ///
@@ -299,6 +300,7 @@ pub(super) enum ClientCommand {
 
 /// Represents a command to the socket listener to join a channel
 #[doc(hidden)]
+#[derive(Debug)]
 pub(super) struct Join {
     /// The instant at which this join was created
     instant: Instant,
@@ -320,6 +322,7 @@ impl Join {
 
 /// Represents a command to the socket listener to leave a channel
 #[doc(hidden)]
+#[derive(Debug)]
 pub(super) struct Leave {
     pub topic: String,
     pub channel_ref: ChannelRef,

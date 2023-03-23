@@ -4,7 +4,7 @@ name: x86_64-apple-ios
 on: push
 
 env:
-  TOOLCHAIN: stable
+  TOOLCHAIN: nightly
   CARGO_TERM_COLOR: always
   DYLD_ROOT_PATH: /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/
 
@@ -15,10 +15,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - name: Install Rust Stable
+      - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           target: x86_64-apple-ios
           default: true
       - name: Set up Elixir
