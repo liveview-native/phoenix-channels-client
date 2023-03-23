@@ -65,9 +65,9 @@ async fn main() {
     let channel = client.join("channel:mytopic", None, Some(Duration::from_secs(15))).await.unwrap();
 
     // Register an event handler, save the ref returned and use `off` to unsubscribe
-    channel.on("some_event", |channel, payload| {
+    channel.on("some_event", Box::new(move |channel, payload| Box::pin(async move {
         println!("channel received {} from topic '{}'", payload, channel.topic());
-    }).await.unwrap();
+    }))).await.unwrap();
 
     // Send a message, waiting for a reply indefinitely
     let result = channel.send("send_reply", json!({ "name": "foo", "message": "hi"})).await.unwrap();

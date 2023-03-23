@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(feature = "nightly", feature(slice_take))]
+#![feature(async_closure)]
 
 mod channel;
 mod client;

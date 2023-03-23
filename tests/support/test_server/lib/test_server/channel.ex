@@ -14,6 +14,10 @@ defmodule TestServer.Channel do
     {:ok, assign(socket, :payload, payload)}
   end
 
+  def handle_in("raise", payload, _socket) do
+    raise payload
+  end
+
   def handle_in("send_all" = event, payload, %Socket{topic: topic} = socket) do
     TestServer.Endpoint.broadcast!(topic, event, payload)
     {:noreply, socket}

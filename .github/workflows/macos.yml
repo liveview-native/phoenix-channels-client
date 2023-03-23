@@ -4,7 +4,7 @@ on: push
 
 env:
   CARGO_TERM_COLOR: always
-  TOOLCHAIN: stable
+  TOOLCHAIN: nightly
 
 jobs:
   integration_tests:
@@ -12,10 +12,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - name: Install Rust Stable
+      - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
+          default: true
       - name: Set up Elixir
         run: brew install elixir
       - name: Cache Cargo
