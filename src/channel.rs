@@ -1,27 +1,39 @@
-use std::fmt;
-use std::future::Future;
-use std::ops::Deref;
+pub(crate) mod listener;
+
+use std::panic;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use futures::FutureExt;
-use fxhash::FxHashMap;
-use log::debug;
-use serde_json::Value;
-use tokio::sync::broadcast;
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
-use tokio::task;
+use log::{debug, error};
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tokio::time;
+use tokio::time::error::Elapsed;
+use tokio::time::Instant;
+use tokio_tungstenite::tungstenite;
+use tokio_tungstenite::tungstenite::error::UrlError;
+use tokio_tungstenite::tungstenite::http;
+use tokio_tungstenite::tungstenite::http::Response;
 
-use crate::client::{ClientCommand, Leave};
+pub(crate) use crate::channel::listener::{Call, Cast};
+use crate::channel::listener::{
+    LeaveError, Listener, SendCommand, ShutdownError, StateCommand, Subscribe, SubscriptionCommand,
+    UnsubscribeSubscription,
+};
 use crate::message::*;
+use crate::reference::Reference;
+use crate::socket;
+use crate::socket::Socket;
+use crate::topic::Topic;
 
 /// Represents errors that occur when interacting with [`Channel`]
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ChannelError {
+    /// Occurs when [Channel::join] is called when a channel is already joined
+    #[error("already joined")]
+    AlreadyJoined,
     /// Occurs when you perform an operation on a channel that is closing/closed
     #[error("channel is closed")]
     Closed,
@@ -32,130 +44,41 @@ pub enum ChannelError {
     #[error("error occurred while joining channel: {0}")]
     JoinFailed(Box<Payload>),
 }
-impl From<tokio::time::error::Elapsed> for ChannelError {
-    fn from(_err: tokio::time::error::Elapsed) -> Self {
-        Self::Timeout
-    }
-}
-impl From<tokio::sync::oneshot::error::RecvError> for ChannelError {
-    fn from(_err: tokio::sync::oneshot::error::RecvError) -> Self {
+impl From<oneshot::error::RecvError> for ChannelError {
+    fn from(_err: oneshot::error::RecvError) -> Self {
         Self::Closed
-    }
-}
-
-/// Represents errors that occur when sending messages via [`Channel`]
-#[derive(Debug, thiserror::Error)]
-pub enum SendError {
-    /// Occurs when sending a message that waits for a reply times out
-    #[error("timeout occurred waiting for reply")]
-    Timeout,
-    /// Occurs when sending a message to a closing/closed channel
-    #[error("channel is closed")]
-    Closed,
-    /// Occurs when channel-level error occurs while waiting for reply
-    #[error("channel error {0} occurred while waiting for reply")]
-    ChannelError(Arc<Payload>),
-    /// Occurs when the the reply to a sent message contains an error produced by the server
-    #[error("received an error reply from the server: {0}")]
-    Reply(Arc<Payload>),
-}
-impl From<tokio::time::error::Elapsed> for SendError {
-    fn from(_err: tokio::time::error::Elapsed) -> Self {
-        Self::Timeout
-    }
-}
-impl From<tokio::sync::oneshot::error::RecvError> for SendError {
-    fn from(_err: tokio::sync::oneshot::error::RecvError) -> Self {
-        Self::Closed
-    }
-}
-impl<T> From<tokio::sync::mpsc::error::SendError<T>> for SendError {
-    fn from(_err: tokio::sync::mpsc::error::SendError<T>) -> Self {
-        Self::Closed
-    }
-}
-
-/// A simple copyable reference to a specific topic
-#[doc(hidden)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ChannelId(u32);
-impl ChannelId {
-    #[inline]
-    pub fn new(topic: &str) -> Self {
-        Self(fxhash::hash32(topic))
-    }
-}
-impl fmt::Display for ChannelId {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-/// A simple copyable reference to a specific channel member
-///
-/// It refers to a specific pair of channel topic and channel join reference.
-/// The channel id is derived from the hash of the topic name; and the channel
-/// reference is unique for each joiner, i.e. when you have multiple joins to
-/// the same channel.
-#[doc(hidden)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ChannelRef {
-    pub(crate) channel_id: ChannelId,
-    pub(crate) join_ref: u32,
-}
-impl ChannelRef {
-    pub fn new(channel_id: ChannelId, join_ref: u32) -> Self {
-        Self {
-            channel_id,
-            join_ref,
-        }
-    }
-}
-impl fmt::Display for ChannelRef {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}:{}", &self.channel_id, self.join_ref)
     }
 }
 
 /// A reference to a specific event handler
 ///
 /// This can be used to unsubscribe a single event handler from a channel
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SubscriptionRef {
-    pub(super) channel_ref: ChannelRef,
-    pub(super) reference: u32,
-}
-impl SubscriptionRef {
-    pub fn new(channel_ref: ChannelRef, reference: u32) -> Self {
-        Self {
-            channel_ref,
-            reference,
-        }
-    }
-}
-impl fmt::Display for SubscriptionRef {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}+{}", &self.channel_ref, self.reference)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct SubscriptionReference(Reference);
+impl SubscriptionReference {
+    pub fn new() -> Self {
+        Self(Reference::new())
     }
 }
 
 #[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u32)]
-pub(crate) enum ChannelStatus {
-    Pending,
+pub(crate) enum Status {
+    NeverJoined,
+    Joining,
+    WaitingToRejoin,
     Joined,
     Leaving,
-    Closing,
+    Left,
+    ShuttingDown,
 }
 
 /// An event handler is a thread-safe callback which is invoked every time an event
 /// is received on a channel to which the handler is subscribed.
 ///
-/// Handlers receive the channel and payload of the event as arguments, which provides
+/// Handlers receive the payload of the event as arguments, which provides
 /// a fair amount of flexibility for reacting to messages; however, they must adhere to
 /// a few rules:
 ///
@@ -168,114 +91,108 @@ pub(crate) enum ChannelStatus {
 /// any blocking they do will block the async runtime from making progress on that thread. If
 /// you need to perform blocking work in the callback, you should invoke `tokio::spawn` with
 /// a new async task; or `tokio::spawn_blocking` for truly blocking tasks.
-pub type EventHandler = Box<dyn Fn(Arc<Channel>, Arc<Payload>) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type EventHandler = Box<dyn Fn(Arc<Payload>) -> BoxFuture<'static, ()> + Send + Sync>;
 
-/// A `Channel` is created when one joins a topic via `Client::join`.
+/// A [Channel] is created with [Socket::channel()]
 ///
 /// It represents a unique connection to the topic, and as a result, you may join
 /// the same topic many times, each time receiving a new, unique `Channel` instance.
 ///
 /// To leave a topic/channel, you can either await the result of `Channel::leave`, or
 /// drop the channel. Once all references to a specific `Channel` are dropped, if it
-/// hasn't yet left its channel, this is done at that point.
+/// hasn't yet left its channel, this is
+// /// You have two ways o done at that point.
+///f sending messages to the channel:
 ///
-/// You have two ways of sending messages to the channel:
-///
-/// * `send`/`send_with_timeout`, to send a message and await a reply from the server
-/// * `send_noreply`, to send a message and ignore any replies
+/// * [Channel::send]/[Channel::cast], to send a message and await a reply from the server
+/// * [Channel::cast], to send a message and ignore any replies
 ///
 pub struct Channel {
-    /// The unique id for this channel. This is always the same for a channel of a given `topic`
-    id: ChannelId,
-    /// The unique id of this channel's session, once joined to the topic
-    join_ref: u32,
+    topic: Topic,
+    payload: Arc<Payload>,
     /// The channel status
     status: Arc<AtomicU32>,
-    /// The name of the channel topic this handle is joined to
-    topic: Arc<String>,
-    /// The payload that is sent when `topic` is joined
-    payload: Option<Payload>,
-    /// Used to send messages to the socket
-    client: mpsc::Sender<ClientCommand>,
-    /// Used to issue commands to the channel listener
-    listener: mpsc::Sender<Command>,
-    /// Counter for unique message reference identifiers
-    next_reference_id: Arc<AtomicU32>,
+    subscription_command_tx: mpsc::Sender<SubscriptionCommand>,
+    state_command_tx: mpsc::Sender<StateCommand>,
+    send_command_tx: mpsc::Sender<SendCommand>,
+    /// The join handle corresponding to the channel listener
+    /// * Some - spawned task has not been joined.
+    /// * None - spawned task has been joined once.
+    join_handle: Option<JoinHandle<Result<(), ShutdownError>>>,
 }
 impl Channel {
-    pub(crate) fn new(
+    /// Spawns a new [Channel] that must be [join]ed.  The `topic` and `payload` is sent on the
+    /// first [join] and any rejoins if the underlying `socket` is disconnected and
+    /// reconnects.
+    pub(crate) async fn spawn(
+        socket: Arc<Socket>,
         topic: String,
         payload: Option<Payload>,
-        join_ref: u32,
-        client: mpsc::Sender<ClientCommand>,
-    ) -> (Arc<Self>, oneshot::Sender<ChannelJoined>) {
-        let id = ChannelId::new(topic.as_str());
-        let channel_ref = ChannelRef::new(id, join_ref);
-        let topic = Arc::new(topic);
-        // Create a channel for communicating with the listener
-        let (commands_tx, commands_rx) = mpsc::channel(10);
-        // Create a channel to signal when the channel is joined and send along remaining handles
-        let (tx, rx) = oneshot::channel::<ChannelJoined>();
+    ) -> Self {
+        let topic: Topic = topic.into();
+        let payload = Arc::new(payload.unwrap_or_default());
+        let status = Arc::new(AtomicU32::new(Status::NeverJoined as u32));
+        let (subscription_command_tx, subscription_command_rx) = mpsc::channel(10);
+        let (state_command_tx, state_command_rx) = mpsc::channel(10);
+        let (send_command_tx, send_command_rx) = mpsc::channel(10);
+        let join_handle = Listener::spawn(
+            socket,
+            topic.clone(),
+            payload.clone(),
+            status.clone(),
+            subscription_command_rx,
+            state_command_rx,
+            send_command_rx,
+        );
 
-        let status = Arc::new(AtomicU32::new(ChannelStatus::Pending as u32));
-        let next_reference_id = Arc::new(AtomicU32::new(0));
-
-        let listener = ChannelListener {
-            channel_ref,
-            topic: topic.clone(),
-            join_ref,
-            status: status.clone(),
-            handlers: Default::default(),
-            commands: commands_rx,
-            client: client.clone(),
-            next_reference_id: next_reference_id.clone(),
-        };
-
-        // Spawn the listener, which will block until we send the ChannelJoined message, or the channel is dropped
-        tokio::spawn(listen(listener, rx));
-
-        let channel = Arc::new(Self {
-            id,
-            join_ref,
-            status,
+        Self {
             topic,
             payload,
-            client,
-            listener: commands_tx,
-            next_reference_id,
-        });
+            status,
+            subscription_command_tx,
+            state_command_tx,
+            send_command_tx,
+            join_handle: Some(join_handle),
+        }
+    }
 
-        (channel, tx)
+    pub async fn join(&self, timeout: Duration) -> Result<(), JoinError> {
+        let (joined_tx, joined_rx) = oneshot::channel();
+
+        self.state_command_tx
+            .send(StateCommand::Join {
+                created_at: Instant::now(),
+                timeout,
+                joined_tx,
+            })
+            .await?;
+
+        time::timeout(timeout, joined_rx).await??
     }
 
     /// Returns the topic this channel is connected to
-    pub fn topic(&self) -> &str {
-        self.topic.as_str()
+    pub fn topic(&self) -> Topic {
+        self.topic.clone()
     }
 
     /// Returns the payload sent to the channel when joined
-    pub fn payload(&self) -> &Option<Payload> {
-        &self.payload
+    pub fn payload(&self) -> Arc<Payload> {
+        self.payload.clone()
     }
 
     /// Returns true if this channel is currently joined to its topic
     pub fn is_joined(&self) -> bool {
-        self.status() == ChannelStatus::Joined
+        self.get_status() == Status::Joined
     }
 
     /// Returns true if this channel is currently leaving its topic
     pub fn is_leaving(&self) -> bool {
-        self.status() == ChannelStatus::Leaving
-    }
-
-    /// Returns true if this channel is currently closing
-    pub fn is_closing(&self) -> bool {
-        self.status() == ChannelStatus::Closing
+        self.get_status() == Status::Leaving
     }
 
     #[inline]
-    fn status(&self) -> ChannelStatus {
-        unsafe { core::mem::transmute::<u32, ChannelStatus>(self.status.load(Ordering::SeqCst)) }
+    fn get_status(&self) -> Status {
+        unsafe { core::mem::transmute::<u32, Status>(self.status.load(Ordering::SeqCst)) }
     }
 
     /// Registers an event handler to be run the next time this channel receives `event`.
@@ -283,27 +200,40 @@ impl Channel {
     /// Returns a `SubscriptionRef` which can be used to unsubscribe the handler.
     ///
     /// You may also unsubscribe all handlers for `event` using `Channel::clear`.
-    pub async fn on<E>(&self, event: E, handler: EventHandler) -> Result<SubscriptionRef, ChannelError>
-    where E: Into<Event>
+    pub async fn on<E>(
+        &self,
+        event: E,
+        handler: EventHandler,
+    ) -> Result<SubscriptionReference, SubscribeError>
+    where
+        E: Into<Event>,
     {
-        let event = event.into();
-        let (tx, rx) = oneshot::channel::<SubscriptionRef>();
-        self.listener
-            .send(Command::Subscribe(event.into(), handler, tx))
-            .await
-            .ok();
-        Ok(rx.await?)
+        let (subscription_reference_tx, subscription_reference_rx) = oneshot::channel();
+        self.subscription_command_tx
+            .send(SubscriptionCommand::Subscribe(Subscribe {
+                event: event.into(),
+                handler,
+                subscription_reference_tx,
+            }))
+            .await?;
+
+        subscription_reference_rx.await.map_err(From::from)
     }
 
     /// Unsubscribes `subscription` from `event`
     ///
-    /// To remove all subscriptions for `event`, use `Channel::clear`.
-    pub async fn off<E>(&self, event: E, subscription: SubscriptionRef)
+    /// To remove all subscriptions for `event`, use [Channel::clear].
+    pub async fn off<E>(&self, event: E, subscription_reference: SubscriptionReference)
     where
         E: Into<Event>,
     {
-        self.listener
-            .send(Command::Unsubscribe(event.into(), subscription))
+        self.subscription_command_tx
+            .send(SubscriptionCommand::UnsubscribeSubscription(
+                UnsubscribeSubscription {
+                    event: event.into(),
+                    subscription_reference,
+                },
+            ))
             .await
             .ok();
     }
@@ -313,121 +243,16 @@ impl Channel {
     where
         E: Into<Event>,
     {
-        self.listener
-            .send(Command::UnsubscribeAll(event.into()))
+        self.subscription_command_tx
+            .send(SubscriptionCommand::UnsubscribeEvent(event.into()))
             .await
             .ok();
-    }
-
-    /// Sends `event` with `payload` to this channel, and awaits a reply.
-    ///
-    /// If you don't care about a reply, use `send_noreply` instead, as it has less overhead.
-    ///
-    /// This function sets no timeout on the reply, so awaiting its result will block forever. As a result,
-    /// you should generally prefer to use `send_with_timeout` with a reasonable default, to ensure that
-    /// you don't accidentally block your workers.
-    pub async fn send<E, T>(&self, event: E, payload: T) -> Result<Payload, SendError>
-    where
-        E: Into<Event>,
-        T: Into<Payload>,
-    {
-        self.send_with_timeout(event, payload, None).await
-    }
-
-    /// Like `send`, except it takes a configurable `timeout` for awaiting the reply.
-    ///
-    /// If `timeout` is None, it is equivalent to `send`, and waits forever.
-    /// If `timeout` is Some(Duration), then waiting for the reply will stop after the duration expires,
-    /// and a `SendError::Timeout` will be produced. If the reply is received before that occurs, then
-    /// the reply payload will be returned.
-    pub async fn send_with_timeout<E, T>(
-        &self,
-        event: E,
-        payload: T,
-        timeout: Option<Duration>,
-    ) -> Result<Payload, SendError>
-    where
-        E: Into<Event>,
-        T: Into<Payload>,
-    {
-        let event = event.into();
-        let payload = payload.into();
-
-        debug!(
-            "sending event {:?} with timeout {} and payload {:#?}",
-            &event, &payload, &timeout
-        );
-
-        let reference_id = self.next_reference_id.fetch_add(1, Ordering::SeqCst);
-        let reference = reference_id.to_string();
-
-        let message = Push {
-            topic: self.topic.deref().clone(),
-            event,
-            payload,
-            join_ref: self.join_ref.to_string(),
-            reference: Some(reference),
-        };
-
-        // monitor the remote node first
-        // https://github.com/erlang/otp/blob/8485b59d10aa4192728f0c7d1f3704357f962fd3/lib/stdlib/src/gen.erl#L249
-        let (channel_error_sender, mut channel_error_receiver) = mpsc::channel(1);
-        let event = Event::Phoenix(PhoenixEvent::Error);
-        let channel_error_subscription_ref =
-            self
-                .on(
-                    event.clone(),
-                    Box::new(move |_handler_channel, payload: Arc<Payload>| {
-                        let boxed_channel_error_sender = Box::new(channel_error_sender.clone());
-                        let async_payload = payload.clone();
-
-                        Box::pin(async move {
-                            boxed_channel_error_sender.send(async_payload).await.unwrap()
-                        })
-                    })
-                )
-                .await
-                .unwrap();
-
-        let (call_sender, call_receiver) = oneshot::channel();
-        self.client
-            .send(ClientCommand::Call(message, call_sender))
-            .await?;
-
-        let future_result = call_receiver.map(|result| match result {
-            Ok(reply) => match reply.status {
-                ReplyStatus::Ok => Ok(reply.payload),
-                ReplyStatus::Error => Err(SendError::Reply(Arc::new(reply.payload))),
-            },
-            Err(_) => Err(SendError::Closed)
-        });
-
-        let future_option_timeout = Self::option_timeout(timeout, future_result);
-
-        let final_result = tokio::select! {
-            result = future_option_timeout => result,
-            Some(error) = channel_error_receiver.recv() => Err(SendError::ChannelError(error))
-        };
-
-        self.off(event, channel_error_subscription_ref).await;
-
-        final_result
-    }
-
-    async fn option_timeout<F>(timeout: Option<Duration>, future: F) -> Result<Payload, SendError> where F: Future<Output = Result<Payload, SendError>> {
-        match timeout {
-            Some(duration) => time::timeout(duration, future).map(|timeout_result| match timeout_result {
-                Ok(future_result) => future_result,
-                Err(_) => Err(SendError::Timeout)
-            }).await,
-            None => future.await
-        }
     }
 
     /// Sends `event` with `payload` to this channel, and returns `Ok` if successful.
     ///
     /// This function does not wait for any reply, if you need the reply, then use `send` or `send_with_timeout`.
-    pub async fn send_noreply<E, T>(&self, event: E, payload: T) -> Result<(), SendError>
+    pub async fn cast<E, T>(&self, event: E, payload: T) -> Result<(), CastError>
     where
         E: Into<Event>,
         T: Into<Payload>,
@@ -440,220 +265,192 @@ impl Channel {
             &event, &payload
         );
 
-        let message = Push {
-            topic: self.topic.deref().clone(),
-            event,
-            payload,
-            join_ref: self.join_ref.to_string(),
-            reference: None,
-        };
+        self.send_command_tx
+            .send(SendCommand::Cast(Cast { event, payload }))
+            .await
+            .map_err(From::from)
+    }
 
-        Ok(self.client.send(ClientCommand::Cast(message)).await?)
+    /// Like `send`, except it takes a configurable `timeout` for awaiting the reply.
+    ///
+    /// If `timeout` is None, it is equivalent to `send`, and waits forever.
+    /// If `timeout` is Some(Duration), then waiting for the reply will stop after the duration expires,
+    /// and a `SendError::Timeout` will be produced. If the reply is received before that occurs, then
+    /// the reply payload will be returned.
+    pub async fn call<E, T>(
+        &self,
+        event: E,
+        payload: T,
+        timeout: Duration,
+    ) -> Result<Payload, CallError>
+    where
+        E: Into<Event>,
+        T: Into<Payload>,
+    {
+        let event = event.into();
+        let payload = payload.into();
+
+        debug!(
+            "sending event {:?} with timeout {:?} and payload {:#?}",
+            &event, &timeout, &payload
+        );
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        self.send_command_tx
+            .send(SendCommand::Call(Call {
+                event,
+                payload,
+                reply_tx,
+            }))
+            .await?;
+
+        debug!("Waiting for reply for {:?} timeout", &timeout);
+
+        time::timeout(timeout, reply_rx).await??
     }
 
     /// Leaves this channel
-    pub async fn leave(&self) {
-        debug!("leaving channel {}", &self.id);
-        let message = Leave {
-            topic: self.topic.deref().clone(),
-            channel_ref: self.channel_ref(),
-        };
-        self.client.send(ClientCommand::Leave(message)).await.ok();
-        self.listener.send(Command::Close).await.ok();
-    }
+    pub async fn leave(&self) -> Result<(), LeaveError> {
+        let (left_tx, left_rx) = oneshot::channel();
 
-    /// Returns the unique id for this channel
-    #[inline]
-    pub(super) fn channel_ref(&self) -> ChannelRef {
-        ChannelRef::new(self.id, self.join_ref)
-    }
-}
+        self.state_command_tx
+            .send(StateCommand::Leave { left_tx })
+            .await?;
 
-#[doc(hidden)]
-#[derive(Debug)]
-pub(super) struct ChannelJoined {
-    /// We send a weak reference to the channel, since we consider the ability to
-    /// upgrade it to a strong reference a signal that the channel should be kept
-    /// alive.
-    pub channel: Weak<Channel>,
-    pub pushes: mpsc::Receiver<Push>,
-    pub broadcasts: broadcast::Receiver<Broadcast>,
-}
-
-enum Command {
-    Subscribe(Event, EventHandler, oneshot::Sender<SubscriptionRef>),
-    Unsubscribe(Event, SubscriptionRef),
-    UnsubscribeAll(Event),
-    Close,
-}
-
-struct ChannelListener {
-    channel_ref: ChannelRef,
-    /// The topic this channel is related to
-    topic: Arc<String>,
-    /// The join ref of this channel
-    join_ref: u32,
-    /// The status of this channel
-    status: Arc<AtomicU32>,
-    /// Event handlers that have been registered to this channel
-    handlers: FxHashMap<Event, FxHashMap<SubscriptionRef, EventHandler>>,
-    /// Used to receive commands for interacting with the channel
-    commands: mpsc::Receiver<Command>,
-    /// Used to send leave commands to the client when shutting down gracefully
-    client: mpsc::Sender<ClientCommand>,
-    /// Shared reference id generator
-    next_reference_id: Arc<AtomicU32>,
-}
-impl ChannelListener {
-    /// Used during graceful termination to tell the server we're leaving the channel
-    async fn leave(&self) {
-        self.status
-            .store(ChannelStatus::Leaving as u32, Ordering::SeqCst);
-        let message = Push {
-            topic: self.topic.as_str().to_string(),
-            event: PhoenixEvent::Leave.into(),
-            payload: Value::Null.into(),
-            join_ref: self.join_ref.to_string(),
-            reference: None,
-        };
-        self.client.send(ClientCommand::Cast(message)).await.ok();
-    }
-
-    /// Terminates this listener, and returns the final result
-    fn shutdown(self, reason: Result<(), ChannelError>) -> Result<(), ChannelError> {
-        self.status
-            .store(ChannelStatus::Closing as u32, Ordering::SeqCst);
-        reason
-    }
-
-    /// Register a new event handler
-    fn register_handler(&mut self, event: Event, handler: EventHandler) -> SubscriptionRef {
-        use std::collections::hash_map::Entry;
-
-        let subscription = self.next_subscription_ref();
-        match self.handlers.entry(event) {
-            Entry::Occupied(mut entry) => {
-                entry.get_mut().insert(subscription, handler);
-            }
-            Entry::Vacant(entry) => {
-                let mut subs = FxHashMap::default();
-                subs.insert(subscription, handler);
-                entry.insert(subs);
-            }
-        }
-        subscription
-    }
-
-    /// Unregisters a previously registered event handler
-    fn unregister_handler(&mut self, event: Event, subscriber: SubscriptionRef) {
-        if let Some(subscribers) = self.handlers.get_mut(&event) {
-            subscribers.remove(&subscriber);
+        match left_rx.await {
+            Ok(result) => result,
+            Err(_) => Err(LeaveError::ChannelShutdown),
         }
     }
 
-    /// Unregisters all handlers for `event`
-    #[inline]
-    fn clear_handlers(&mut self, event: Event) {
-        self.handlers.remove(&event);
+    /// Propagates panic from [Listener::listen]
+    pub async fn shutdown(mut self) -> Result<(), ShutdownError> {
+        self.state_command_tx
+            .send(StateCommand::Shutdown)
+            .await
+            // if already shut down that's OK
+            .ok();
+
+        self.listener_shutdown().await
     }
 
-    /// Handles a received event
-    async fn handle_event(&self, channel: Arc<Channel>, event: Event, payload: Payload) {
-        if let Some(subscribers) = self.handlers.get(&event) {
-            let arc_payload = Arc::new(payload);
-
-            for handler in subscribers.values() {
-                tokio::spawn(handler(channel.clone(), arc_payload.clone()));
-                task::consume_budget().await
-            }
-        }
-    }
-
-    /// Returns a new unique subscription id
-    #[inline]
-    fn next_subscription_ref(&self) -> SubscriptionRef {
-        SubscriptionRef::new(
-            self.channel_ref,
-            self.next_reference_id.fetch_add(1, Ordering::SeqCst),
-        )
-    }
-}
-
-async fn listen(
-    mut listener: ChannelListener,
-    joined: oneshot::Receiver<ChannelJoined>,
-) -> Result<(), ChannelError> {
-    use tokio::sync::broadcast::error::RecvError;
-
-    let ChannelJoined {
-        channel,
-        mut broadcasts,
-        mut pushes,
-    } = joined.await?;
-
-    listener
-        .status
-        .store(ChannelStatus::Joined as u32, Ordering::SeqCst);
-
-    let mut interval = time::interval(Duration::from_secs(30));
-    interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-
-    loop {
-        tokio::select! {
-            cmd = listener.commands.recv() => {
-                interval.reset();
-                match cmd {
-                    Some(Command::Subscribe(event, handler, reply_to)) => {
-                        let subscription = listener.register_handler(event, handler);
-                        reply_to.send(subscription).ok();
-                    }
-                    Some(Command::Unsubscribe(event, subscription)) => {
-                        listener.unregister_handler(event, subscription);
-                    }
-                    Some(Command::UnsubscribeAll(event)) => {
-                        listener.clear_handlers(event);
-                    }
-                    Some(Command::Close) | None => {
-                        listener.leave().await;
-                        return listener.shutdown(Ok(()));
-                    }
-                }
-            }
-            msg = pushes.recv() => {
-                interval.reset();
-                if let Some(channel) = channel.upgrade() {
-                    match msg {
-                        Some(msg) => listener.handle_event(channel.clone(), msg.event, msg.payload).await,
-                        None => return listener.shutdown(Err(ChannelError::Closed)),
-                    }
-                } else {
-                    listener.leave().await;
-                    return listener.shutdown(Err(ChannelError::Closed));
-                }
+    /// Propagates panic from [Listener::listen]
+    async fn listener_shutdown(&mut self) -> Result<(), ShutdownError> {
+        match self.join_handle.take() {
+            Some(join_handle) => match join_handle.await {
+                Ok(result) => result,
+                Err(join_error) => panic::resume_unwind(join_error.into_panic()),
             },
-            msg = broadcasts.recv() => {
-                interval.reset();
-                if let Some(channel) = channel.upgrade() {
-                    match msg {
-                        Ok(msg) => listener.handle_event(channel.clone(), msg.event, msg.payload).await,
-                        Err(RecvError::Closed) => return listener.shutdown(Err(ChannelError::Closed)),
-                        Err(RecvError::Lagged(_)) => continue,
-                    }
-                } else {
-                    listener.leave().await;
-                    return listener.shutdown(Err(ChannelError::Closed));
-                }
-            }
-            _ = interval.tick() => {
-                // If we haven't received any messages for 30s, check to make sure the channel still has strong references
-                match channel.strong_count() {
-                    0 => {
-                        listener.leave().await;
-                        return listener.shutdown(Err(ChannelError::Closed));
-                    }
-                    _ => continue,
-                }
-            }
+            None => Err(ShutdownError::AlreadyJoined),
         }
+    }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum SubscribeError {
+    #[error("channel already shutdown")]
+    Shutdown,
+}
+impl From<mpsc::error::SendError<SubscriptionCommand>> for SubscribeError {
+    fn from(_: mpsc::error::SendError<SubscriptionCommand>) -> Self {
+        SubscribeError::Shutdown
+    }
+}
+impl From<oneshot::error::RecvError> for SubscribeError {
+    fn from(_: oneshot::error::RecvError) -> Self {
+        SubscribeError::Shutdown
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum JoinError {
+    #[error("timeout joining channel")]
+    Timeout,
+    #[error("channel shutting down")]
+    ShuttingDown,
+    #[error("channel already shutdown")]
+    Shutdown,
+    #[error("socket was disconnect while channel was being joined")]
+    SocketDisconnected,
+    // #[error("socket already shutdown")]
+    // SocketShutdown,
+    #[error("leaving channel while still waiting to see if join succeeded")]
+    LeavingWhileJoining,
+    #[error("waiting to rejoin")]
+    WaitingToRejoin(Instant),
+    #[error("server rejected join")]
+    Rejected(Arc<Payload>),
+}
+impl From<oneshot::error::RecvError> for JoinError {
+    fn from(_: oneshot::error::RecvError) -> Self {
+        JoinError::Shutdown
+    }
+}
+impl From<mpsc::error::SendError<StateCommand>> for JoinError {
+    fn from(_: mpsc::error::SendError<StateCommand>) -> Self {
+        JoinError::Shutdown
+    }
+}
+impl From<Elapsed> for JoinError {
+    fn from(_: Elapsed) -> Self {
+        JoinError::Timeout
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CastError {
+    #[error("channel already shutdown")]
+    Shutdown,
+    #[error("socket already shutdown")]
+    SocketShutdown,
+    #[error("URL error: {0}")]
+    Url(UrlError),
+    #[error("HTTP error: {}", .0.status())]
+    Http(Response<Option<String>>),
+    /// HTTP format error.
+    #[error("HTTP format error: {0}")]
+    HttpFormat(http::Error),
+}
+impl From<mpsc::error::SendError<SendCommand>> for CastError {
+    fn from(_: mpsc::error::SendError<SendCommand>) -> Self {
+        CastError::Shutdown
+    }
+}
+impl From<socket::listener::ShutdownError> for CastError {
+    fn from(shutdown_error: socket::listener::ShutdownError) -> Self {
+        match shutdown_error {
+            socket::listener::ShutdownError::AlreadyJoined => CastError::SocketShutdown,
+            socket::listener::ShutdownError::Url(url_error) => CastError::Url(url_error),
+            socket::listener::ShutdownError::Http(response) => CastError::Http(response),
+            socket::listener::ShutdownError::HttpFormat(error) => CastError::HttpFormat(error),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CallError {
+    #[error("channel already shutdown")]
+    Shutdown,
+    #[error("timeout making call")]
+    Timeout,
+    #[error("web socket error {0}")]
+    WebSocketError(tungstenite::Error),
+    #[error("socket disconnected while waiting for reply")]
+    SocketDisconnected,
+}
+impl From<mpsc::error::SendError<SendCommand>> for CallError {
+    fn from(_: mpsc::error::SendError<SendCommand>) -> Self {
+        CallError::Shutdown
+    }
+}
+impl From<Elapsed> for CallError {
+    fn from(_: Elapsed) -> Self {
+        CallError::Timeout
+    }
+}
+impl From<oneshot::error::RecvError> for CallError {
+    fn from(_: oneshot::error::RecvError) -> Self {
+        CallError::Shutdown
     }
 }

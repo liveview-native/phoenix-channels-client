@@ -3,10 +3,14 @@
 #![feature(async_closure)]
 
 mod channel;
-mod client;
+mod join_reference;
 mod message;
+mod reference;
+mod socket;
+mod topic;
+
+pub use serde_json::Value;
 
 pub use self::channel::*;
-pub use self::client::{Client, ClientError, Config};
 pub use self::message::{Event, Payload, PhoenixEvent};
-pub use serde_json::Value;
+pub use self::socket::{ConnectError, Socket, SocketError};

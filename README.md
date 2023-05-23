@@ -44,42 +44,53 @@ nightly APIs for operating on slices, which we use while parsing.
 ## Example
 
 ```rust
+use std::sync::Arc;
 use std::time::Duration;
-use serde_json::json;
 
-use phoenix_channels_client::{Config, Client};
+use serde_json::json;
+use url::Url;
+
+use phoenix_channels_client::Socket;
 
 #[tokio::main]
 async fn main() {
-    // Prepare configuration for the client
-    let mut config = Config::new("ws://127.0.0.1:9002/socket/websocket").unwrap();
-    config.set("shared_secret", "supersecret");
+    // URL with params for authentication
+    let url = Url::parse_with_params(
+        "ws://127.0.0.1:9002/socket/websocket",
+        &[("shared_secret", "supersecret")],
+    ).unwrap();
 
-    // Create a client
-    let mut client = Client::new(config).unwrap();
+    // Create a socket
+    let socket = Socket::spawn(url).await.unwrap();
 
-    // Connect the client
-    client.connect().await.unwrap();
+    // Connect the socket
+    socket.connect(Duration::from_secs(10)).await.unwrap();
 
-    // Join a channel with no params and a timeout
-    let channel = client.join("channel:mytopic", None, Some(Duration::from_secs(15))).await.unwrap();
-
+    // Create a channel with no params
+    let channel = socket.channel("channel:mytopic", None).await;
+    let some_event_channel = channel.clone();
     // Register an event handler, save the ref returned and use `off` to unsubscribe
-    channel.on("some_event", Box::new(move |channel, payload| Box::pin(async move {
-        println!("channel received {} from topic '{}'", payload, channel.topic());
-    }))).await.unwrap();
-
-    // Send a message, waiting for a reply indefinitely
-    let result = channel.send("send_reply", json!({ "name": "foo", "message": "hi"})).await.unwrap();
-
-    // Send a message, waiting for a reply with an optional timeout
-    let result = channel.send_with_timeout("send_reply", json!({ "name": "foo", "message": "hello"}), Some(Duration::from_secs(5))).await.unwrap();
+    let subscription_reference  = channel.on("some_event", Box::new(move |payload| {
+        let async_channel = some_event_channel.clone();
+        
+        Box::pin(async move {
+            println!("channel received {} from topic '{}'", payload, async_channel.topic());
+        })
+    })).await.unwrap();
+    // Join the channel with a 15 second timeout
+    channel.join(Duration::from_secs(15)).await.unwrap();
+    
+    // Send a message, waiting for a reply until timeout
+    let reply_payload = channel.call("send_reply", json!({ "name": "foo", "message": "hi"}), Duration::from_secs(5)).await.unwrap();
 
     // Send a message, not waiting for a reply
-    let result = channel.send_noreply("send_noreply", json!({ "name": "foo", "message": "jeez"})).await.unwrap();
+    channel.cast("send_noreply", json!({ "name": "foo", "message": "jeez"})).await.unwrap();
 
     // Leave the channel
-    channel.leave().await;
+    channel.leave().await.unwrap();
+    
+    // Disconnect the socket
+    socket.disconnect().await.unwrap();
 }
 ```
 

@@ -14,6 +14,12 @@ defmodule TestServer.Channel do
     {:ok, assign(socket, :payload, payload)}
   end
 
+  def handle_in("transport_error", _payload, socket) do
+    Process.exit(socket.transport_pid, :kill)
+
+    {:noreply, socket}
+  end
+
   def handle_in("raise", payload, _socket) do
     raise payload
   end
