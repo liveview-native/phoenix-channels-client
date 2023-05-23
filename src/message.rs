@@ -1,11 +1,14 @@
 use std::fmt;
 use std::mem;
 use std::str::{self, FromStr};
+use std::sync::Arc;
 
+use crate::join_reference::JoinReference;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message as SocketMessage;
 
-use crate::{ChannelId, ChannelRef, SubscriptionRef};
+use crate::reference::Reference;
+use crate::topic::Topic;
 
 /// Occurs when decoding messages received from the server
 #[doc(hidden)]
@@ -14,7 +17,7 @@ pub enum MessageDecodingError {
     #[error("unexpected eof")]
     UnexpectedEof,
     #[error("invalid utf-8: {0}")]
-    InvalidUtf8(#[from] std::str::Utf8Error),
+    InvalidUtf8(#[from] str::Utf8Error),
     #[error("{0}")]
     Invalid(String),
     #[error("invalid binary payload")]
@@ -65,86 +68,49 @@ pub struct Control {
     pub event: Event,
     pub payload: Payload,
     /// A unique ID for this message that is used for associating messages with their replies.
-    pub reference: Option<String>,
+    pub reference: Option<Reference>,
 }
 
 /// Represents a message broadcast to all members of a channel
 #[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct Broadcast {
-    pub topic: String,
+    pub topic: Topic,
     pub event: Event,
-    pub payload: Payload,
-}
-impl Broadcast {
-    #[inline]
-    pub fn channel_id(&self) -> ChannelId {
-        ChannelId::new(self.topic.as_str())
-    }
+    pub payload: Arc<Payload>,
 }
 
 /// Represents a reply to a message
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct Reply {
-    pub topic: String,
+    pub topic: Topic,
     /// The event for this message type is always `PhoenixEvent::Reply`
     pub event: Event,
     pub payload: Payload,
     /// The unique reference of the channel member this message is being sent to/from
     ///
     /// This ID is selected by the client when joining a channel, and must be provided whenever sending a message to the channel.
-    pub join_ref: String,
+    pub join_reference: JoinReference,
     /// A unique ID for this message that is used for associating messages with their replies.
-    pub reference: String,
+    pub reference: Reference,
     /// The status of the reply
     pub status: ReplyStatus,
-}
-impl Reply {
-    /// Reifies the `ChannelRef` to which this reply is associated
-    pub fn channel_ref(&self) -> ChannelRef {
-        let channel_id = ChannelId::new(&self.topic);
-        ChannelRef::new(channel_id, self.join_ref.as_str().parse::<u32>().unwrap())
-    }
-
-    pub fn subscription_ref(&self) -> SubscriptionRef {
-        let channel_ref = self.channel_ref();
-        let reference = self.reference.parse::<u32>().unwrap();
-        SubscriptionRef::new(channel_ref, reference)
-    }
 }
 
 /// Represents a message being sent by a specific member of a channel, to the other members of the channel
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct Push {
-    pub topic: String,
+    pub topic: Topic,
     pub event: Event,
-    pub payload: Payload,
+    pub payload: Arc<Payload>,
     /// The unique reference of the channel member this message is being sent to/from
     ///
     /// This ID is selected by the client when joining a channel, and must be provided whenever sending a message to the channel.
-    pub join_ref: String,
+    pub join_reference: JoinReference,
     /// A unique ID for this message that is used for associating messages with their replies.
-    pub reference: Option<String>,
-}
-impl Push {
-    /// Reifies the `ChannelRef` to which this message is associated
-    pub fn channel_ref(&self) -> ChannelRef {
-        let channel_id = ChannelId::new(&self.topic);
-        ChannelRef::new(channel_id, self.join_ref.as_str().parse::<u32>().unwrap())
-    }
-
-    pub fn subscription_ref(&self) -> Option<SubscriptionRef> {
-        let channel_ref = self.channel_ref();
-        match self.reference.as_deref() {
-            Some(reference) => Some(SubscriptionRef::new(
-                channel_ref,
-                reference.parse::<u32>().unwrap(),
-            )),
-            None => None,
-        }
-    }
+    pub reference: Option<Reference>,
 }
 
 impl Message {
@@ -161,15 +127,21 @@ impl Message {
     ///
     /// See the Phoenix Channels js client for reference.
     fn encode_binary(self) -> Result<Vec<u8>, MessageEncodingError> {
-        let (join_ref, reference, topic, event, mut payload) = match self {
+        let (join_ref, reference, topic, event, mut payload): (
+            Arc<String>,
+            Arc<String>,
+            Arc<String>,
+            String,
+            Vec<u8>,
+        ) = match self {
             Self::Control(Control {
                 event,
                 payload,
                 reference,
             }) => (
-                String::new(),
-                reference.unwrap_or_default(),
-                "phoenix".to_string(),
+                Arc::new(String::new()),
+                reference.map(From::from).unwrap_or_default(),
+                Arc::new("phoenix".to_string()),
                 event.to_string(),
                 payload.into_binary().unwrap(),
             ),
@@ -178,38 +150,41 @@ impl Message {
                 event,
                 payload,
             }) => (
-                String::new(),
-                String::new(),
-                topic,
+                Arc::new(String::new()),
+                Arc::new(String::new()),
+                topic.into(),
                 event.to_string(),
-                payload.into_binary().unwrap(),
+                Payload::clone(&payload).into_binary().unwrap(),
             ),
             Self::Reply(Reply {
                 topic,
                 event,
                 payload,
-                join_ref,
+                join_reference,
                 reference,
                 ..
             }) => (
-                join_ref,
-                reference,
-                topic,
-                event.to_string(),
+                join_reference.into(),
+                reference.into(),
+                topic.into(),
+                event.into(),
                 payload.into_binary().unwrap(),
             ),
             Self::Push(Push {
+                join_reference,
+                reference,
                 topic,
                 event,
                 payload,
-                join_ref,
-                reference,
             }) => (
-                join_ref,
-                reference.unwrap_or_default(),
-                topic,
+                join_reference.into(),
+                reference
+                    .as_ref()
+                    .map(From::from)
+                    .unwrap_or_else(Default::default),
+                topic.into(),
                 event.to_string(),
-                payload.into_binary().unwrap(),
+                Payload::clone(&payload).into_binary().unwrap(),
             ),
         };
 
@@ -269,13 +244,13 @@ impl Message {
             Self::Control(Control {
                 event,
                 payload,
-                reference: None,
+                reference: Option::None,
             }) => {
                 vec![
                     Value::Null,
                     Value::Null,
                     "phoenix".into(),
-                    event.to_string().into(),
+                    event.into(),
                     payload.into_value().unwrap(),
                 ]
             }
@@ -301,39 +276,39 @@ impl Message {
                     Value::Null,
                     Value::Null,
                     topic.into(),
-                    event.to_string().into(),
-                    payload.into_value().unwrap(),
+                    event.into(),
+                    Payload::clone(&payload).into_value().unwrap(),
                 ]
             }
             Self::Reply(Reply {
                 topic,
                 event,
                 payload,
-                join_ref,
+                join_reference,
                 reference,
                 ..
             }) => {
                 vec![
-                    join_ref.into(),
+                    join_reference.into(),
                     reference.into(),
                     topic.into(),
-                    event.to_string().into(),
+                    event.into(),
                     payload.into_value().unwrap(),
                 ]
             }
             Self::Push(Push {
+                join_reference,
+                reference,
                 topic,
                 event,
                 payload,
-                join_ref,
-                reference,
             }) => {
                 vec![
-                    join_ref.into(),
-                    reference.map(Value::String).unwrap_or(Value::Null),
+                    join_reference.into(),
+                    reference.as_ref().map(From::from).unwrap_or(Value::Null),
                     topic.into(),
-                    event.to_string().into(),
-                    payload.into_value().unwrap(),
+                    event.into(),
+                    Payload::clone(&payload).into_value().unwrap(),
                 ]
             }
         });
@@ -358,7 +333,7 @@ impl Message {
                     }
                 };
                 let topic = match fields.pop().unwrap() {
-                    Value::String(s) => s,
+                    Value::String(s) => s.into(),
                     other => {
                         return Err(MessageDecodingError::Invalid(format!(
                             "expected topic to be a string, got: {:#?}",
@@ -368,7 +343,7 @@ impl Message {
                 };
                 let reference = match fields.pop().unwrap() {
                     Value::Null => None,
-                    Value::String(s) => Some(s),
+                    Value::String(s) => Some(s.into()),
                     other => {
                         return Err(MessageDecodingError::Invalid(format!(
                             "expected ref to be a string or null, got: {:#?}",
@@ -376,9 +351,9 @@ impl Message {
                         )))
                     }
                 };
-                let join_ref = match fields.pop().unwrap() {
+                let join_reference: Option<JoinReference> = match fields.pop().unwrap() {
                     Value::Null => None,
-                    Value::String(s) => Some(s),
+                    Value::String(s) => Some(s.into()),
                     other => {
                         return Err(MessageDecodingError::Invalid(format!(
                             "expected join_ref to be a string or null, got: {:#?}",
@@ -386,20 +361,20 @@ impl Message {
                         )))
                     }
                 };
-                match (join_ref, reference) {
+                match (join_reference, reference) {
                     (None, None) => Ok(Message::Broadcast(Broadcast {
                         topic,
                         event,
-                        payload: Payload::Value(payload),
+                        payload: Arc::new(Payload::Value(payload)),
                     })),
-                    (Some(join_ref), None) => Ok(Message::Push(Push {
+                    (Some(join_reference), None) => Ok(Message::Push(Push {
                         topic,
                         event,
-                        payload: Payload::Value(payload),
-                        join_ref,
+                        payload: Arc::new(Payload::Value(payload)),
+                        join_reference,
                         reference: None,
                     })),
-                    (Some(join_ref), Some(reference)) => match event {
+                    (Some(join_reference), Some(reference)) => match event {
                         Event::Phoenix(PhoenixEvent::Reply) => {
                             let (status, payload) = match payload {
                                 Value::Object(mut map) => {
@@ -417,7 +392,7 @@ impl Message {
                                 topic,
                                 event,
                                 payload: Payload::Value(payload),
-                                join_ref,
+                                join_reference,
                                 reference,
                                 status,
                             }))
@@ -425,8 +400,8 @@ impl Message {
                         event => Ok(Message::Push(Push {
                             topic,
                             event,
-                            payload: Payload::Value(payload),
-                            join_ref,
+                            payload: Arc::new(Payload::Value(payload)),
+                            join_reference,
                             reference: Some(reference),
                         })),
                     },
@@ -471,15 +446,17 @@ impl Message {
                 let topic = str::from_utf8(
                     take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
                 let event = str::from_utf8(
                     take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
-                let payload = Payload::Binary(bytes.to_vec());
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
+                let payload = Arc::new(Payload::Binary(bytes.to_vec()));
                 Ok(Message::Broadcast(Broadcast {
-                    topic: topic.to_string(),
-                    event: event.into(),
+                    topic,
+                    event,
                     payload,
                 }))
             }
@@ -492,30 +469,35 @@ impl Message {
                     take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let status_size =
                     take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
-                let join_ref = str::from_utf8(
+                let join_reference = str::from_utf8(
                     take(&mut bytes, join_ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
                 let reference = str::from_utf8(
                     take(&mut bytes, ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
                 let topic = str::from_utf8(
                     take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
                 let status = str::from_utf8(
                     take(&mut bytes, status_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
+
                 let payload = Payload::Binary(bytes.to_vec());
                 Ok(Message::Reply(Reply {
-                    topic: topic.to_string(),
+                    topic,
                     event: Event::Phoenix(PhoenixEvent::Reply),
                     payload,
-                    join_ref: join_ref.to_string(),
-                    reference: reference.to_string(),
-                    status: status.into(),
+                    join_reference,
+                    reference,
+                    status,
                 }))
             }
             BinaryMessageType::Push => {
@@ -525,24 +507,27 @@ impl Message {
                     take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let event_size =
                     take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
-                let join_ref = str::from_utf8(
+                let join_reference = str::from_utf8(
                     take(&mut bytes, join_ref_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
                 let topic = str::from_utf8(
                     take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
                 let event = str::from_utf8(
                     take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
-                .map_err(MessageDecodingError::InvalidUtf8)?;
-                let payload = Payload::Binary(bytes.to_vec());
+                .map_err(MessageDecodingError::InvalidUtf8)?
+                .into();
+                let payload = Arc::new(Payload::Binary(bytes.to_vec()));
                 Ok(Message::Push(Push {
-                    topic: topic.to_string(),
-                    event: event.into(),
+                    topic,
+                    event,
                     payload,
-                    join_ref: join_ref.to_string(),
+                    join_reference,
                     reference: None,
                 }))
             }
@@ -623,10 +608,6 @@ impl ReplyStatus {
             Self::Ok => "ok",
             Self::Error => "error",
         }
-    }
-
-    pub fn is_error(&self) -> bool {
-        *self == ReplyStatus::Error
     }
 }
 impl From<&str> for ReplyStatus {
@@ -726,6 +707,21 @@ pub enum Event {
     Phoenix(PhoenixEvent),
     /// Represents a user-defined event
     User(String),
+}
+impl From<Event> for String {
+    fn from(event: Event) -> Self {
+        event.to_string()
+    }
+}
+impl From<Event> for Value {
+    fn from(event: Event) -> Self {
+        Value::String(event.into())
+    }
+}
+impl From<&Event> for Value {
+    fn from(event: &Event) -> Self {
+        Value::String(event.to_string().into())
+    }
 }
 impl From<PhoenixEvent> for Event {
     #[inline]

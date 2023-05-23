@@ -14,6 +14,14 @@ defmodule TestServer.Channel do
     {:ok, assign(socket, :payload, payload)}
   end
 
+  def handle_in("disconnect", _payload, socket) do
+    IO.inspect(socket)
+    :sys.get_status(socket.transport_pid) |> IO.inspect(label: "Transport PID status")
+    Process.exit(socket.transport_pid, :kill)
+
+    {:noreply, socket}
+  end
+
   def handle_in("raise", payload, _socket) do
     raise payload
   end
