@@ -18,8 +18,8 @@ use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::join_reference::JoinReference;
 use crate::message::*;
 use crate::socket::listener::{
-    ChannelSendCommand, ChannelStateCommand, Connect, Join, Leave, Listener, ShutdownError,
-    StateCommand,
+    ChannelSendCommand, ChannelSpawn, ChannelStateCommand, Connect, Join, Leave, Listener,
+    ShutdownError, StateCommand,
 };
 use crate::topic::Topic;
 use crate::{channel, Channel};
@@ -58,6 +58,7 @@ pub enum SocketError {
 pub struct Socket {
     url: Arc<Url>,
     state_command_sender: mpsc::Sender<StateCommand>,
+    channel_spawn_sender: mpsc::Sender<ChannelSpawn>,
     channel_state_command_sender: mpsc::Sender<ChannelStateCommand>,
     channel_send_command_sender: mpsc::Sender<ChannelSendCommand>,
     /// The join handle corresponding to the socket listener
@@ -80,11 +81,13 @@ impl Socket {
         }
 
         let url = Arc::new(url);
+        let (channel_spawn_sender, channel_spawn_receiver) = mpsc::channel(50);
         let (state_command_sender, state_command_receiver) = mpsc::channel(50);
         let (channel_state_command_sender, channel_state_command_receiver) = mpsc::channel(50);
         let (channel_send_command_sender, channel_send_command_receiver) = mpsc::channel(50);
         let join_handle = Listener::spawn(
             url.clone(),
+            channel_spawn_receiver,
             state_command_receiver,
             channel_state_command_receiver,
             channel_send_command_receiver,
@@ -92,6 +95,7 @@ impl Socket {
 
         Ok(Arc::new(Self {
             url,
+            channel_spawn_sender,
             state_command_sender,
             channel_state_command_sender,
             channel_send_command_sender,
@@ -156,10 +160,26 @@ impl Socket {
     }
 
     /// Creates a new, unjoined Phoenix Channel
-    pub async fn channel(self: &Arc<Self>, topic: &str, payload: Option<Payload>) -> Arc<Channel> {
-        let arc_channel = Arc::new(Channel::spawn(self.clone(), topic.to_string(), payload).await);
+    pub async fn channel(
+        self: &Arc<Self>,
+        topic: &str,
+        payload: Option<Payload>,
+    ) -> Result<Arc<Channel>, ChannelError> {
+        let (sender, receiver) = oneshot::channel();
 
-        arc_channel
+        match self
+            .channel_spawn_sender
+            .send(ChannelSpawn {
+                socket: self.clone(),
+                topic: topic.to_string(),
+                payload,
+                sender,
+            })
+            .await
+        {
+            Ok(()) => receiver.await.map(Arc::new).map_err(From::from),
+            Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
+        }
     }
 
     pub(crate) async fn join(
@@ -288,6 +308,22 @@ impl From<mpsc::error::SendError<StateCommand>> for ConnectError {
 impl From<oneshot::error::RecvError> for ConnectError {
     fn from(_: oneshot::error::RecvError) -> Self {
         ConnectError::SocketShutdown
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ChannelError {
+    #[error("socket already shutdown")]
+    Shutdown,
+}
+impl From<oneshot::error::RecvError> for ChannelError {
+    fn from(_: oneshot::error::RecvError) -> Self {
+        ChannelError::Shutdown
+    }
+}
+impl From<ShutdownError> for ChannelError {
+    fn from(_: ShutdownError) -> Self {
+        ChannelError::Shutdown
     }
 }
 

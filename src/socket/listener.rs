@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::hash::Hash;
+use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,25 +29,29 @@ use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
 use crate::reference::Reference;
 use crate::socket::ConnectError;
 use crate::topic::Topic;
-use crate::{channel, socket};
+use crate::{channel, socket, Channel, Socket};
 use crate::{Event, Payload, PhoenixEvent};
 
 pub(super) struct Listener {
     url: Arc<Url>,
+    channel_spawn_receiver: mpsc::Receiver<ChannelSpawn>,
     state_command_receiver: mpsc::Receiver<StateCommand>,
     channel_state_command_receiver: mpsc::Receiver<ChannelStateCommand>,
     channel_send_command_receiver: mpsc::Receiver<ChannelSendCommand>,
+    connectivity_sender: broadcast::Sender<Connectivity>,
     state: Option<State>,
 }
 impl Listener {
     pub(super) fn spawn(
         url: Arc<Url>,
+        channel_spawn_receiver: mpsc::Receiver<ChannelSpawn>,
         state_command_receiver: mpsc::Receiver<StateCommand>,
         channel_state_command_receiver: mpsc::Receiver<ChannelStateCommand>,
         channel_send_command_receiver: mpsc::Receiver<ChannelSendCommand>,
     ) -> JoinHandle<Result<(), ShutdownError>> {
         let listener = Self::init(
             url,
+            channel_spawn_receiver,
             state_command_receiver,
             channel_state_command_receiver,
             channel_send_command_receiver,
@@ -57,15 +62,20 @@ impl Listener {
 
     fn init(
         url: Arc<Url>,
+        channel_spawn_receiver: mpsc::Receiver<ChannelSpawn>,
         state_command_receiver: mpsc::Receiver<StateCommand>,
         channel_state_command_receiver: mpsc::Receiver<ChannelStateCommand>,
         channel_send_command_receiver: mpsc::Receiver<ChannelSendCommand>,
     ) -> Self {
+        let (connectivity_sender, _) = broadcast::channel(1);
+
         Self {
             url,
+            channel_spawn_receiver,
             state_command_receiver,
             channel_state_command_receiver,
             channel_send_command_receiver,
+            connectivity_sender,
             state: Some(State::NeverConnected),
         }
     }
@@ -75,14 +85,17 @@ impl Listener {
 
         loop {
             let mut current_state = self.state.take().unwrap();
+            let current_discriminant = mem::discriminant(&current_state);
 
             let next_state = match current_state {
-                State::NeverConnected | State::Disconnected => tokio::select! {
+                State::NeverConnected { .. } | State::Disconnected { .. } => tokio::select! {
+                    Some(channel_spawn) = self.channel_spawn_receiver.recv() => self.spawn_channel(current_state, channel_spawn).await,
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(current_state, state_command).await,
                     else => break Ok(())
                 },
                 State::Connected(mut connected) => tokio::select! {
                     Some(socket_result) = connected.socket.next() => self.handle_socket_result(connected, socket_result).await?,
+                    Some(channel_spawn) = self.channel_spawn_receiver.recv() => self.spawn_channel(State::Connected(connected), channel_spawn).await,
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(State::Connected(connected), state_command).await,
                     Some(channel_state_command) = self.channel_state_command_receiver.recv() => self.update_channel_state(connected, channel_state_command).await,
                     Some(channel_send_command) = self.channel_send_command_receiver.recv() => self.send(connected, channel_send_command).await,
@@ -99,16 +112,49 @@ impl Listener {
                     reconnect,
                 } => tokio::select! {
                     () = sleep => self.reconnect(reconnect).await,
+                    Some(channel_spawn) = self.channel_spawn_receiver.recv() => self.spawn_channel(current_state, channel_spawn).await,
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(current_state, state_command).await,
                     else => break Ok(())
                 },
                 State::ShuttingDown => break Ok(()),
             };
 
-            debug!("next state is {:#?}", &next_state);
+            let next_discriminant = mem::discriminant(&next_state);
+
+            if next_discriminant != current_discriminant {
+                debug!("transitioned state to {:#?}", &next_state);
+            }
 
             self.state = Some(next_state);
         }
+    }
+
+    async fn spawn_channel(&self, state: State, channel_spawn: ChannelSpawn) -> State {
+        let ChannelSpawn {
+            socket,
+            topic,
+            payload,
+            sender,
+        } = channel_spawn;
+
+        let channel_state = match &state {
+            State::NeverConnected | State::Disconnected | State::WaitingToReconnect { .. } => {
+                channel::listener::State::WaitingForSocketToConnect { rejoin: None }
+            }
+            State::Connected(_) => channel::listener::State::WaitingToJoin,
+            State::ShuttingDown => channel::listener::State::ShuttingDown,
+        };
+
+        let connectivity_receiver = self.connectivity_sender.subscribe();
+
+        let channel =
+            Channel::spawn(socket, connectivity_receiver, topic, payload, channel_state).await;
+
+        if let Err(channel) = sender.send(channel) {
+            channel.shutdown().await.ok();
+        }
+
+        state
     }
 
     async fn update_state(&self, state: State, state_command: StateCommand) -> State {
@@ -117,19 +163,21 @@ impl Listener {
             StateCommand::Disconnect {
                 disconnected_sender,
             } => self.disconnect(state, disconnected_sender).await,
-            StateCommand::Shutdown => State::shutdown(state).await,
+            StateCommand::Shutdown => self.shutdown(state).await,
         }
     }
 
     async fn connect(&self, state: State, connect: Connect) -> State {
         let (connect_result, next_state) = match state {
-            State::NeverConnected | State::Disconnected => match self
-                .socket_connect(connect.created_at, connect.reconnect())
-                .await
-            {
-                Ok(state) => (Ok(()), state),
-                Err((connect_error, reconnect)) => (Err(connect_error), reconnect.wait()),
-            },
+            State::NeverConnected | State::Disconnected => {
+                match self
+                    .socket_connect(connect.created_at, connect.reconnect())
+                    .await
+                {
+                    Ok(state) => (Ok(()), state),
+                    Err((connect_error, reconnect)) => (Err(connect_error), reconnect.wait()),
+                }
+            }
             State::WaitingToReconnect { ref sleep, .. } => (
                 Err(ConnectError::WaitingToReconnect(sleep.deadline())),
                 state,
@@ -145,22 +193,93 @@ impl Listener {
 
     async fn disconnect(&self, state: State, disconnected_sender: oneshot::Sender<()>) -> State {
         let next_state = match state {
-            State::NeverConnected
+            State::NeverConnected { .. }
             | State::WaitingToReconnect { .. }
-            | State::Disconnected
+            | State::Disconnected { .. }
             | State::ShuttingDown => state,
             State::Connected(mut connected) => {
                 if let Err(error) = connected.socket.close(None).await {
                     debug!("Web socket error while disconnecting: {}", error);
                 };
 
-                connected.disconnect(Left::SocketDisconnect)
+                self.disconnect_connected(connected)
             }
         };
 
         disconnected_sender.send(()).ok();
 
         next_state
+    }
+
+    fn server_disconnected_connected(&self, mut connected: Connected) -> State {
+        self.send_disconnected(&mut connected, Disconnected::ServerDisconnected);
+
+        State::Disconnected
+    }
+
+    fn disconnect_connected(&self, mut connected: Connected) -> State {
+        self.send_disconnected(&mut connected, Disconnected::Disconnect);
+
+        State::Disconnected
+    }
+
+    fn shutdown_connected(&self, mut connected: Connected) -> State {
+        self.send_disconnected(&mut connected, Disconnected::Shutdown);
+
+        State::ShuttingDown
+    }
+
+    fn wait_to_reconnect_connected(&self, mut connected: Connected) -> State {
+        self.send_disconnected(&mut connected, Disconnected::Reconnect);
+
+        Reconnect {
+            connect_timeout: connected.connect_timeout,
+            attempts: 0,
+        }
+        .wait()
+    }
+
+    fn send_disconnected(&self, connected: &mut Connected, disconnected: Disconnected) {
+        let connectivity = Connectivity::Disconnected(disconnected);
+        debug!("Sending connectivity change: {:?}", connectivity);
+        self.connectivity_sender.send(connectivity).ok();
+
+        for (_, mut join_by_join_reference) in connected.join_by_reference_by_topic.drain() {
+            for (_, join) in join_by_join_reference.drain() {
+                join.joined_sender
+                    .send(Err(socket::JoinError::Disconnected))
+                    .ok();
+            }
+        }
+
+        // self.joined_channel_senders_by_join_reference_by_topic left senders are not notified as they should get the disconnect message above instead
+        connected
+            .joined_channel_senders_by_join_reference_by_topic
+            .clear();
+
+        for (topic, mut reply_sender_by_reference_by_join_reference) in connected
+            .reply_sender_by_reference_by_join_reference_by_topic
+            .drain()
+        {
+            debug!(
+                "Sending SocketDisconnected to topic {:#?} channel reply senders",
+                topic
+            );
+
+            for (join_reference, mut reply_sender_by_reference) in
+                reply_sender_by_reference_by_join_reference.drain()
+            {
+                debug!("Sending SocketDisconnected to topic {:#?} channel joined as {:#?} reply senders", topic, join_reference);
+
+                for (reference, reply_sender) in reply_sender_by_reference.drain() {
+                    debug!("Sending SocketDisconnected to topic {:#?} channel joined as {:#?} message {:#?} reply senders", topic, join_reference, reference);
+
+                    reply_sender
+                        .send(Err(channel::CallError::SocketDisconnected))
+                        .ok();
+                }
+            }
+        }
     }
 
     async fn handle_socket_result(
@@ -188,7 +307,7 @@ impl Listener {
                     .await
                 {
                     Ok(()) => State::Connected(connected),
-                    Err(_) => connected.wait_to_reconnect(Left::SocketReconnect),
+                    Err(_) => self.wait_to_reconnect_connected(connected),
                 }
             }
             tungstenite::Message::Pong(_) => {
@@ -200,7 +319,7 @@ impl Listener {
                 debug!("client received close from server, closing socket");
                 connected.socket.close(frame).await.ok();
 
-                connected.disconnect(Left::ServerDisconnected)
+                self.server_disconnected_connected(connected)
             }
             msg @ tungstenite::Message::Binary(_) | msg @ tungstenite::Message::Text(_) => {
                 match Message::decode(msg) {
@@ -248,13 +367,13 @@ impl Listener {
             tungstenite::Error::ConnectionClosed => {
                 debug!("connection closed");
 
-                Ok(connected.wait_to_reconnect(Left::SocketReconnect))
+                Ok(self.wait_to_reconnect_connected(connected))
             }
             tungstenite::Error::AlreadyClosed => {
                 // This shouldn't ever be reached since we handle ConnectionClosed, but treat it the same
                 error!("socket already closed");
 
-                Ok(connected.wait_to_reconnect(Left::SocketReconnect))
+                Ok(self.wait_to_reconnect_connected(connected))
             }
             tungstenite::Error::Io(_) => {
                 error!(
@@ -262,7 +381,7 @@ impl Listener {
                     &error
                 );
 
-                Ok(connected.wait_to_reconnect(Left::SocketReconnect))
+                Ok(self.wait_to_reconnect_connected(connected))
             }
             tungstenite::Error::Tls(_) => {
                 error!(
@@ -270,7 +389,7 @@ impl Listener {
                     &error
                 );
 
-                Ok(connected.wait_to_reconnect(Left::SocketReconnect))
+                Ok(self.wait_to_reconnect_connected(connected))
             }
             tungstenite::Error::Capacity(_) => {
                 debug!("socket capacity exhausted, dropping message");
@@ -280,7 +399,7 @@ impl Listener {
             tungstenite::Error::Protocol(_) => {
                 debug!("web socket protocol error: {:?}", &error);
 
-                Ok(connected.wait_to_reconnect(Left::SocketReconnect))
+                Ok(self.wait_to_reconnect_connected(connected))
             }
             tungstenite::Error::SendQueueFull(_) => {
                 debug!("web socket send queue full: {:?}", &error);
@@ -350,7 +469,7 @@ impl Listener {
 
                 State::Connected(connected)
             }
-            Err(_) => connected.wait_to_reconnect(Left::SocketReconnect),
+            Err(_) => self.wait_to_reconnect_connected(connected),
         }
     }
 
@@ -388,13 +507,13 @@ impl Listener {
                     left: left_sender, ..
                 }) = connected.remove_joined_channel_senders(leave.topic, leave.join_reference)
                 {
-                    left_sender.send(Left::Left).ok();
+                    left_sender.send(()).ok();
                 }
 
                 (State::Connected(connected), Ok(()))
             }
             Err(web_socket_error) => (
-                connected.disconnect(Left::SocketReconnect),
+                self.wait_to_reconnect_connected(connected),
                 Err(LeaveError::WebSocketError(Arc::new(web_socket_error))),
             ),
         };
@@ -455,7 +574,7 @@ impl Listener {
                     .send(Err(channel::CallError::WebSocketError(web_socket_error)))
                     .ok();
 
-                connected.wait_to_reconnect(Left::SocketReconnect)
+                self.wait_to_reconnect_connected(connected)
             }
         }
     }
@@ -483,7 +602,7 @@ impl Listener {
 
         match connected.socket.send(data).await {
             Ok(()) => State::Connected(connected),
-            Err(_) => connected.disconnect(Left::SocketReconnect),
+            Err(_) => self.wait_to_reconnect_connected(connected),
         }
     }
 
@@ -509,7 +628,7 @@ impl Listener {
 
                         State::Connected(connected)
                     }
-                    Err(_) => connected.wait_to_reconnect(Left::SocketReconnect),
+                    Err(_) => self.wait_to_reconnect_connected(connected),
                 }
             }
         }
@@ -540,6 +659,8 @@ impl Listener {
                         time::interval_at((Instant::now() + duration).into(), duration);
                     heartbeat.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
+                    self.connectivity_sender.send(Connectivity::Connected).ok();
+
                     Ok(State::Connected(Connected {
                         socket,
                         heartbeat,
@@ -561,6 +682,20 @@ impl Listener {
             Err(_) => Err((ConnectError::Timeout, reconnect)),
         }
     }
+
+    async fn shutdown(&self, state: State) -> State {
+        match state {
+            State::Connected(mut connected) => {
+                debug!("socket is shutting down");
+                connected.socket.close(None).await.ok();
+                self.shutdown_connected(connected)
+            }
+            State::NeverConnected { .. }
+            | State::WaitingToReconnect { .. }
+            | State::Disconnected { .. }
+            | State::ShuttingDown => State::ShuttingDown,
+        }
+    }
 }
 
 enum State {
@@ -573,29 +708,16 @@ enum State {
     Disconnected,
     ShuttingDown,
 }
-impl State {
-    async fn shutdown(state: State) -> State {
-        match state {
-            State::Connected(mut connected) => {
-                debug!("socket is shutting down");
-                connected.socket.close(None).await.ok();
-                connected.disconnect(Left::SocketShutdown)
-            }
-            State::NeverConnected
-            | State::WaitingToReconnect { .. }
-            | State::Disconnected
-            | State::ShuttingDown => State::ShuttingDown,
-        }
-    }
-}
 impl Debug for State {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            State::NeverConnected => write!(f, "NeverConnected"),
-            State::Disconnected => write!(f, "Disconnected"),
+            State::NeverConnected { .. } => write!(f, "NeverConnected"),
+            State::Disconnected { .. } => write!(f, "Disconnected"),
             State::ShuttingDown => write!(f, "ShuttingDown"),
             State::Connected(connected) => f.debug_tuple("Connected").field(connected).finish(),
-            State::WaitingToReconnect { sleep, reconnect } => f
+            State::WaitingToReconnect {
+                sleep, reconnect, ..
+            } => f
                 .debug_struct("WaitingToReconnect")
                 .field(
                     "duration_until_sleep_over",
@@ -836,81 +958,6 @@ impl Connected {
                 .ok();
         }
     }
-
-    fn send_disconnected(&mut self, left: Left) {
-        for (_, mut join_by_join_reference) in self.join_by_reference_by_topic.drain() {
-            for (_, join) in join_by_join_reference.drain() {
-                join.joined_sender
-                    .send(Err(socket::JoinError::Disconnected))
-                    .ok();
-            }
-        }
-
-        for (topic, mut joined_channel_senders_by_join_reference) in self
-            .joined_channel_senders_by_join_reference_by_topic
-            .drain()
-        {
-            debug!("Sending {:?} to topic {:#?} channels", left, topic);
-
-            for (
-                join_reference,
-                JoinedChannelSenders {
-                    left: left_sender, ..
-                },
-            ) in joined_channel_senders_by_join_reference.drain()
-            {
-                debug!(
-                    "Sending {:?} to topic {:#?} channel joined as {:#?}",
-                    left, topic, join_reference
-                );
-
-                left_sender.send(left).ok();
-            }
-        }
-
-        for (topic, mut reply_sender_by_reference_by_join_reference) in self
-            .reply_sender_by_reference_by_join_reference_by_topic
-            .drain()
-        {
-            debug!(
-                "Sending SocketDisconnected to topic {:#?} channel reply senders",
-                topic
-            );
-
-            for (join_reference, mut reply_sender_by_reference) in
-                reply_sender_by_reference_by_join_reference.drain()
-            {
-                debug!("Sending SocketDisconnected to topic {:#?} channel joined as {:#?} reply senders", topic, join_reference);
-
-                for (reference, reply_sender) in reply_sender_by_reference.drain() {
-                    debug!("Sending SocketDisconnected to topic {:#?} channel joined as {:#?} message {:#?} reply senders", topic, join_reference, reference);
-
-                    reply_sender
-                        .send(Err(channel::CallError::SocketDisconnected))
-                        .ok();
-                }
-            }
-        }
-    }
-
-    fn disconnect(mut self, left: Left) -> State {
-        self.send_disconnected(left);
-
-        State::Disconnected
-    }
-
-    fn reconnect(mut self, left: Left) -> Reconnect {
-        self.send_disconnected(left);
-
-        Reconnect {
-            connect_timeout: self.connect_timeout,
-            attempts: 0,
-        }
-    }
-
-    fn wait_to_reconnect(self, left: Left) -> State {
-        self.reconnect(left).wait()
-    }
 }
 impl Debug for Connected {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -987,16 +1034,16 @@ impl Reconnect {
         }
     }
 
-    const SLEEP_DURATIONS: &'static [Duration] = &[
-        Duration::from_secs(1),
-        Duration::from_secs(2),
-        Duration::from_secs(5),
-        Duration::from_secs(10),
-    ];
-
     fn sleep_duration(&self) -> Duration {
-        Self::SLEEP_DURATIONS[(self.attempts as usize).min(Self::SLEEP_DURATIONS.len() - 1)]
+        self.connect_timeout * self.sleep_duration_multiplier()
     }
+
+    fn sleep_duration_multiplier(&self) -> u32 {
+        Self::SLEEP_DURATION_MULTIPLIERS
+            [(self.attempts as usize).min(Self::SLEEP_DURATION_MULTIPLIERS.len() - 1)]
+    }
+
+    const SLEEP_DURATION_MULTIPLIERS: &'static [u32] = &[0, 1, 2, 5, 10];
 }
 
 struct JoinKey {
@@ -1007,21 +1054,32 @@ struct JoinKey {
 #[derive(Debug)]
 struct JoinedChannelSenders {
     push: mpsc::Sender<Push>,
-    left: oneshot::Sender<Left>,
+    left: oneshot::Sender<()>,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum Left {
+#[derive(Clone, Debug)]
+pub(crate) enum Connectivity {
+    Connected,
+    Disconnected(Disconnected),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum Disconnected {
     /// The server told us to disconnect
     ServerDisconnected,
     /// [Socket::disconnect]
-    SocketDisconnect,
+    Disconnect,
     /// [Socket::shutdown]
-    SocketShutdown,
-    /// We're reconnecting automatically
-    SocketReconnect,
-    /// We left explicitly the channel
-    Left,
+    Shutdown,
+    /// We're reconnecting automatically; channels should rejoin when [Connectivity::Connected] occurs next.
+    Reconnect,
+}
+
+pub(super) struct ChannelSpawn {
+    pub socket: Arc<Socket>,
+    pub topic: String,
+    pub payload: Option<Payload>,
+    pub sender: oneshot::Sender<Channel>,
 }
 
 pub(super) enum StateCommand {
