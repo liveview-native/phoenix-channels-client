@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use log::{debug, error};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::error::Elapsed;
@@ -25,6 +25,7 @@ use crate::channel::listener::{
 use crate::message::*;
 use crate::reference::Reference;
 use crate::socket;
+use crate::socket::listener::Connectivity;
 use crate::socket::Socket;
 use crate::topic::Topic;
 
@@ -66,7 +67,8 @@ impl SubscriptionReference {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u32)]
 pub(crate) enum Status {
-    NeverJoined,
+    WaitingForSocketToConnect,
+    WaitingToJoin,
     Joining,
     WaitingToRejoin,
     Joined,
@@ -113,12 +115,11 @@ pub struct Channel {
     /// The channel status
     status: Arc<AtomicU32>,
     subscription_command_tx: mpsc::Sender<SubscriptionCommand>,
+    shutdown_tx: oneshot::Sender<()>,
     state_command_tx: mpsc::Sender<StateCommand>,
     send_command_tx: mpsc::Sender<SendCommand>,
     /// The join handle corresponding to the channel listener
-    /// * Some - spawned task has not been joined.
-    /// * None - spawned task has been joined once.
-    join_handle: Option<JoinHandle<Result<(), ShutdownError>>>,
+    join_handle: JoinHandle<Result<(), ShutdownError>>,
 }
 impl Channel {
     /// Spawns a new [Channel] that must be [join]ed.  The `topic` and `payload` is sent on the
@@ -126,20 +127,26 @@ impl Channel {
     /// reconnects.
     pub(crate) async fn spawn(
         socket: Arc<Socket>,
+        socket_connectivity_rx: broadcast::Receiver<Connectivity>,
         topic: String,
         payload: Option<Payload>,
+        state: listener::State,
     ) -> Self {
         let topic: Topic = topic.into();
         let payload = Arc::new(payload.unwrap_or_default());
-        let status = Arc::new(AtomicU32::new(Status::NeverJoined as u32));
+        let status = Arc::new(AtomicU32::new(state.status() as u32));
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let (subscription_command_tx, subscription_command_rx) = mpsc::channel(10);
         let (state_command_tx, state_command_rx) = mpsc::channel(10);
         let (send_command_tx, send_command_rx) = mpsc::channel(10);
         let join_handle = Listener::spawn(
             socket,
+            socket_connectivity_rx,
             topic.clone(),
             payload.clone(),
+            state,
             status.clone(),
+            shutdown_rx,
             subscription_command_rx,
             state_command_rx,
             send_command_rx,
@@ -150,9 +157,10 @@ impl Channel {
             payload,
             status,
             subscription_command_tx,
+            shutdown_tx,
             state_command_tx,
             send_command_tx,
-            join_handle: Some(join_handle),
+            join_handle,
         }
     }
 
@@ -320,29 +328,20 @@ impl Channel {
 
         match left_rx.await {
             Ok(result) => result,
-            Err(_) => Err(LeaveError::ChannelShutdown),
+            Err(_) => Err(LeaveError::Shutdown),
         }
     }
 
     /// Propagates panic from [Listener::listen]
-    pub async fn shutdown(mut self) -> Result<(), ShutdownError> {
-        self.state_command_tx
-            .send(StateCommand::Shutdown)
-            .await
+    pub async fn shutdown(self) -> Result<(), ShutdownError> {
+        self.shutdown_tx
+            .send(())
             // if already shut down that's OK
             .ok();
 
-        self.listener_shutdown().await
-    }
-
-    /// Propagates panic from [Listener::listen]
-    async fn listener_shutdown(&mut self) -> Result<(), ShutdownError> {
-        match self.join_handle.take() {
-            Some(join_handle) => match join_handle.await {
-                Ok(result) => result,
-                Err(join_error) => panic::resume_unwind(join_error.into_panic()),
-            },
-            None => Err(ShutdownError::AlreadyJoined),
+        match self.join_handle.await {
+            Ok(result) => result,
+            Err(join_error) => panic::resume_unwind(join_error.into_panic()),
         }
     }
 }
@@ -371,10 +370,10 @@ pub enum JoinError {
     ShuttingDown,
     #[error("channel already shutdown")]
     Shutdown,
+    #[error("server disconnected the socket")]
+    ServerDisconnected,
     #[error("socket was disconnect while channel was being joined")]
     SocketDisconnected,
-    // #[error("socket already shutdown")]
-    // SocketShutdown,
     #[error("leaving channel while still waiting to see if join succeeded")]
     LeavingWhileJoining,
     #[error("waiting to rejoin")]

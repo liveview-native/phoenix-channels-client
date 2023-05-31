@@ -67,7 +67,7 @@ async fn main() {
     socket.connect(Duration::from_secs(10)).await.unwrap();
 
     // Create a channel with no params
-    let channel = socket.channel("channel:mytopic", None).await;
+    let channel = socket.channel("channel:mytopic", None).await.unwrap();
     let some_event_channel = channel.clone();
     // Register an event handler, save the ref returned and use `off` to unsubscribe
     let subscription_reference  = channel.on("some_event", Box::new(move |payload| {

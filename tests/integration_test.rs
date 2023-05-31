@@ -11,6 +11,7 @@ use log::debug;
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
 use std::io::ErrorKind;
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Error;
 use url::Url;
 
@@ -42,11 +43,11 @@ async fn phoenix_channels_transport_error_reconnect_test() {
     let channel = socket
         .channel("channel:transport_error", None)
         .await
-        ;
-    channel.join(TIMEOUT).await.unwrap();
+        .unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
 
     let call_error = channel
-        .call("transport_error", json!({}), TIMEOUT)
+        .call("transport_error", json!({}), CALL_TIMEOUT)
         .await
         .unwrap_err();
 
@@ -55,12 +56,30 @@ async fn phoenix_channels_transport_error_reconnect_test() {
     let payload = json_payload();
 
     debug!("Sending to check for reconnect");
-    let received_payload = channel
-        .call("send_reply", payload.clone(), TIMEOUT)
-        .await
-        .unwrap();
+    let start = Instant::now();
 
-    assert_eq!(received_payload, payload);
+    match channel
+        .call(
+            "send_reply",
+            payload.clone(),
+            CONNECT_TIMEOUT + JOIN_TIMEOUT + CALL_TIMEOUT,
+        )
+        .await
+    {
+        Ok(received_payload) => assert_eq!(received_payload, payload),
+        Err(call_error) => match call_error {
+            CallError::Shutdown => panic!("channel shut down"),
+            CallError::Timeout => {
+                // debug to get time stamp
+                debug!("Timeout after {:?}", start.elapsed());
+                panic!("timeout");
+            }
+            CallError::WebSocketError(web_socket_error) => {
+                panic!("web socket error {:?}", web_socket_error)
+            }
+            CallError::SocketDisconnected => panic!("socket disconnected"),
+        },
+    }
 }
 
 #[tokio::test]
@@ -84,12 +103,12 @@ async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
     let socket = connected_socket(url).await;
     let topic = format!("channel:join:payload:{}", subtopic);
 
-    let channel = socket.channel(&topic, Some(payload.clone())).await;
+    let channel = socket.channel(&topic, Some(payload.clone())).await.unwrap();
 
-    channel.join(TIMEOUT).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
 
     let received_payload = channel
-        .call("send_join_payload", json!({}), TIMEOUT)
+        .call("send_join_payload", json!({}), CALL_TIMEOUT)
         .await
         .unwrap();
     assert_eq!(received_payload, payload);
@@ -116,8 +135,8 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:error:{}", subtopic);
-    let channel = socket.channel(&topic, Some(payload.clone())).await;
-    let result = channel.join(TIMEOUT).await;
+    let channel = socket.channel(&topic, Some(payload.clone())).await.unwrap();
+    let result = channel.join(JOIN_TIMEOUT).await;
 
     assert!(result.is_err());
 
@@ -147,8 +166,8 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
     let receiver_client = connected_socket(url.clone()).await;
 
     let topic = format!("channel:broadcast:{}", subtopic);
-    let receiver_channel = receiver_client.channel(&topic, None).await;
-    receiver_channel.join(TIMEOUT).await.unwrap();
+    let receiver_channel = receiver_client.channel(&topic, None).await.unwrap();
+    receiver_channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(receiver_channel.is_joined());
 
     const EVENT: &'static str = "send_all";
@@ -176,8 +195,8 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
 
     let sender_client = connected_socket(url).await;
 
-    let sender_channel = sender_client.channel(&topic, None).await;
-    sender_channel.join(TIMEOUT).await.unwrap();
+    let sender_channel = sender_client.channel(&topic, None).await.unwrap();
+    sender_channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(sender_channel.is_joined());
 
     sender_channel
@@ -185,7 +204,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
         .await
         .unwrap();
 
-    let result = time::timeout(TIMEOUT, test_notify.notified()).await;
+    let result = time::timeout(CALL_TIMEOUT, test_notify.notified()).await;
     assert_matches!(result, Ok(_));
 }
 
@@ -209,12 +228,12 @@ async fn phoenix_channels_call_test(subtopic: &str, payload: Payload) {
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:call:{}", subtopic);
-    let channel = socket.channel(&topic, None).await;
-    channel.join(TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(channel.is_joined());
 
     let reply = channel
-        .call("send_reply", payload.clone(), TIMEOUT)
+        .call("send_reply", payload.clone(), CALL_TIMEOUT)
         .await
         .unwrap();
 
@@ -241,12 +260,12 @@ async fn phoenix_channels_call_error_test(subtopic: &str, payload: Payload) {
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:raise:{}", subtopic);
-    let channel = socket.channel(&topic, None).await;
-    channel.join(TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(channel.is_joined());
 
     let send_error = channel
-        .call("raise", payload.clone(), TIMEOUT)
+        .call("raise", payload.clone(), CALL_TIMEOUT)
         .await
         .unwrap_err();
 
@@ -273,8 +292,8 @@ async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) {
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:raise:{}", subtopic);
-    let channel = socket.channel(&topic, None).await;
-    channel.join(TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(channel.is_joined());
 
     let result = channel.cast("raise", payload.clone()).await;
@@ -285,7 +304,7 @@ async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) {
 async fn connected_socket(url: Url) -> Arc<Socket> {
     let socket = Socket::spawn(url).await.unwrap();
 
-    if let Err(connect_error) = socket.connect(TIMEOUT).await {
+    if let Err(connect_error) = socket.connect(CONNECT_TIMEOUT).await {
         match connect_error {
             ConnectError::WebSocketError(Error::Io(io_error)) => {
                 if io_error.kind() == ErrorKind::ConnectionRefused {
@@ -309,7 +328,9 @@ fn url() -> Url {
     .unwrap()
 }
 
-const TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const JOIN_TIMEOUT: Duration = Duration::from_secs(5);
+const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn json_payload() -> Payload {
     Payload::Value(json!({ "status": "testng", "num": 1i64 }))

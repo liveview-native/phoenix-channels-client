@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::mem;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -19,15 +20,19 @@ use tokio_tungstenite::tungstenite::http::Response;
 use crate::channel::Status;
 use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Push};
-use crate::socket::listener::Left;
+use crate::socket::listener::{Connectivity, Disconnected};
 use crate::topic::Topic;
-use crate::{channel, socket, Event, EventHandler, Payload, Socket, SubscriptionReference};
+use crate::{
+    channel, socket, Event, EventHandler, JoinError, Payload, Socket, SubscriptionReference,
+};
 
 pub(super) struct Listener {
     socket: Arc<Socket>,
+    socket_connectivity_rx: broadcast::Receiver<Connectivity>,
     topic: Topic,
     payload: Arc<Payload>,
     channel_status: Arc<AtomicU32>,
+    shutdown_rx: oneshot::Receiver<()>,
     subscription_command_rx: mpsc::Receiver<SubscriptionCommand>,
     handler_by_subscription_reference_by_event:
         HashMap<Event, HashMap<SubscriptionReference, EventHandler>>,
@@ -39,55 +44,58 @@ pub(super) struct Listener {
 impl Listener {
     pub(super) fn spawn(
         socket: Arc<Socket>,
+        socket_connectivity_rx: broadcast::Receiver<Connectivity>,
         topic: Topic,
         payload: Arc<Payload>,
+        state: State,
         channel_status: Arc<AtomicU32>,
+        shutdown_rx: oneshot::Receiver<()>,
         subscription_command_rx: mpsc::Receiver<SubscriptionCommand>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         send_command_rx: mpsc::Receiver<SendCommand>,
     ) -> JoinHandle<Result<(), ShutdownError>> {
         let listener = Self::init(
             socket,
+            socket_connectivity_rx,
             topic,
             payload,
+            state,
             channel_status,
+            shutdown_rx,
             subscription_command_rx,
             state_command_rx,
             send_command_rx,
         );
 
-        tokio::spawn(listener.listen_wrapper())
+        tokio::spawn(listener.listen())
     }
 
     fn init(
         socket: Arc<Socket>,
+        socket_connectivity_rx: broadcast::Receiver<Connectivity>,
         topic: Topic,
         payload: Arc<Payload>,
+        state: State,
         channel_status: Arc<AtomicU32>,
+        shutdown_rx: oneshot::Receiver<()>,
         subscription_command_rx: mpsc::Receiver<SubscriptionCommand>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         send_command_rx: mpsc::Receiver<SendCommand>,
     ) -> Self {
         Self {
             socket,
+            socket_connectivity_rx,
             topic,
             payload,
+            state: Some(state),
             channel_status,
+            shutdown_rx,
             subscription_command_rx,
             handler_by_subscription_reference_by_event: Default::default(),
             state_command_rx,
-            state: Some(State::NeverJoined),
             send_command_rx,
             join_reference: JoinReference::new(),
         }
-    }
-
-    async fn listen_wrapper(self) -> Result<(), ShutdownError> {
-        let result = self.listen().await;
-
-        debug!("Listen returned {:#?}", result);
-
-        result
     }
 
     async fn listen(mut self) -> Result<(), ShutdownError> {
@@ -98,9 +106,26 @@ impl Listener {
 
         loop {
             let mut current_state = self.state.take().unwrap();
+            let current_discriminant = mem::discriminant(&current_state);
 
             let next_state = match current_state {
-                State::NeverJoined | State::Left => tokio::select! {
+                State::WaitingForSocketToConnect { .. } => tokio::select! {
+                    biased;
+
+                    _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
+                    Some(subscription_command) = self.subscription_command_rx.recv() => {
+                        self.update_subscriptions(subscription_command).await;
+
+                        current_state
+                    },
+                    else => break Ok(())
+                },
+                State::WaitingToJoin => tokio::select! {
+                    biased;
+
+                    _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
                     Some(subscription_command) = self.subscription_command_rx.recv() => {
                         self.update_subscriptions(subscription_command).await;
 
@@ -110,6 +135,9 @@ impl Listener {
                     else => break Ok(())
                 },
                 State::Joining(mut joining) => tokio::select! {
+                    biased;
+
+                    _ = &mut self.shutdown_rx => State::Joining(joining).shutdown(),
                     socket_joined_result = &mut joining.socket_joined_rx => self.joined_result_result_received(joining, socket_joined_result).await?,
                     Some(subscription_command) = self.subscription_command_rx.recv() => {
                         self.update_subscriptions(subscription_command).await;
@@ -123,6 +151,10 @@ impl Listener {
                     ref mut sleep,
                     rejoin,
                 } => tokio::select! {
+                    biased;
+
+                    _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
                     () = sleep => self.rejoin(current_state, rejoin).await?,
                     Some(subscription_command) = self.subscription_command_rx.recv() => {
                         self.update_subscriptions(subscription_command).await;
@@ -132,15 +164,16 @@ impl Listener {
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await?,
                     else => break Ok(())
                 },
-                State::Joined(mut joined) => {
-                    tokio::select! {
+                State::Joined(mut joined) => tokio::select! {
                         // left_rx should be polled before others, so that that the socket
                         // disconnected or is reconnecting is seen before the broadcast_rx's
                         // sender being dropped and a `Err(broadcast::error::RecvError::Closed)`
                         // being received
                         biased;
 
-                        left_result = &mut joined.left_rx => self.left_result_received(joined, left_result),
+                        _ = &mut self.shutdown_rx => State::Joined(joined).shutdown(),
+                        Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => State::Joined(joined).connectivity_changed(socket_connectivity),
+                        Ok(()) = &mut joined.left_rx => State::Left,
                         Some(subscription_command) = self.subscription_command_rx.recv() => {
                             self.update_subscriptions(subscription_command).await;
 
@@ -152,16 +185,33 @@ impl Listener {
                             self.push_received(push).await;
 
                             State::Joined(joined)
-                        },
-                        broadcast_result = joined.broadcast_rx.recv() => self.broadcast_result_received(joined, broadcast_result).await?,
+                        }
+                        Ok(broadcast) = joined.broadcast_rx.recv() => {
+                            self.broadcast_received(broadcast).await;
+
+                            State::Joined(joined)
+                        }
                         else => break Ok(())
-                    }
-                }
-                State::Leaving {
-                    ref mut socket_left_rx,
-                    ..
-                } => tokio::select! {
-                    left_result_result = socket_left_rx => self.left_result_result_received(current_state, left_result_result).await?,
+                },
+                State::Leaving(mut leaving) => tokio::select! {
+                    biased;
+
+                    _ = &mut self.shutdown_rx => State::Leaving(leaving).shutdown(),
+                    Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => State::Leaving(leaving).connectivity_changed(socket_connectivity),
+                    Ok(left_result) = &mut leaving.socket_left_rx => leaving.left(left_result),
+                    Some(subscription_command) = self.subscription_command_rx.recv() => {
+                        self.update_subscriptions(subscription_command).await;
+
+                         State::Leaving(leaving)
+                    },
+                    Some(state_command) = self.state_command_rx.recv() => self.update_state(State::Leaving(leaving), state_command).await?,
+                    else => break Ok(())
+                },
+                State::Left => tokio::select! {
+                    biased;
+
+                    _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
                     Some(subscription_command) = self.subscription_command_rx.recv() => {
                         self.update_subscriptions(subscription_command).await;
 
@@ -173,19 +223,14 @@ impl Listener {
                 State::ShuttingDown => break Ok(()),
             };
 
-            let channel_status = match next_state {
-                State::NeverJoined => Status::NeverJoined,
-                State::Joining { .. } => Status::Joining,
-                State::WaitingToRejoin { .. } => Status::WaitingToRejoin,
-                State::Joined { .. } => Status::Joined,
-                State::Leaving { .. } => Status::Leaving,
-                State::Left => Status::Left,
-                State::ShuttingDown => Status::ShuttingDown,
-            };
             self.channel_status
-                .store(channel_status as u32, Ordering::SeqCst);
+                .store(next_state.status() as u32, Ordering::SeqCst);
 
-            debug!("next state is {:#?}", &next_state);
+            let next_discriminant = mem::discriminant(&next_state);
+
+            if next_discriminant != current_discriminant {
+                debug!("transitioned state to {:#?}", &next_state);
+            }
 
             self.state = Some(next_state);
         }
@@ -259,7 +304,6 @@ impl Listener {
                 joined_tx,
             } => self.join(state, created_at, timeout, joined_tx).await,
             StateCommand::Leave { left_tx } => Ok(self.leave(state, left_tx).await),
-            StateCommand::Shutdown => Ok(State::ShuttingDown),
         }
     }
 
@@ -268,10 +312,11 @@ impl Listener {
         mut state: State,
         created_at: Instant,
         timeout: Duration,
-        channel_joined_tx: oneshot::Sender<Result<(), channel::JoinError>>,
+        channel_joined_tx: oneshot::Sender<Result<(), JoinError>>,
     ) -> Result<State, ShutdownError> {
         match state {
-            State::NeverJoined | State::Leaving { .. } | State::Left => {
+            State::WaitingForSocketToConnect { .. } => unreachable!(),
+            State::WaitingToJoin { .. } | State::Leaving { .. } | State::Left { .. } => {
                 self.socket_join_if_not_timed_out(state, created_at, timeout, channel_joined_tx)
                     .await
             }
@@ -285,7 +330,7 @@ impl Listener {
             }
             State::WaitingToRejoin { ref sleep, .. } => {
                 channel_joined_tx
-                    .send(Err(channel::JoinError::WaitingToRejoin(sleep.deadline())))
+                    .send(Err(JoinError::WaitingToRejoin(sleep.deadline())))
                     .ok();
 
                 Ok(state)
@@ -296,9 +341,7 @@ impl Listener {
                 Ok(state)
             }
             State::ShuttingDown => {
-                channel_joined_tx
-                    .send(Err(channel::JoinError::ShuttingDown))
-                    .ok();
+                channel_joined_tx.send(Err(JoinError::ShuttingDown)).ok();
 
                 Ok(state)
             }
@@ -310,7 +353,7 @@ impl Listener {
         state: State,
         created_at: Instant,
         timeout: Duration,
-        channel_joined_tx: oneshot::Sender<Result<(), channel::JoinError>>,
+        channel_joined_tx: oneshot::Sender<Result<(), JoinError>>,
     ) -> Result<State, ShutdownError> {
         let deadline = created_at + timeout;
         let rejoin = Rejoin {
@@ -364,24 +407,22 @@ impl Listener {
                     push_rx,
                     broadcast_rx,
                     left_rx,
-                    join_timeout: Default::default(),
+                    join_timeout: rejoin.join_timeout,
                 }),
             ),
             Err(socket_join_error) => match socket_join_error {
-                socket::JoinError::Shutdown => {
-                    (Err(channel::JoinError::ShuttingDown), State::ShuttingDown)
-                }
+                socket::JoinError::Shutdown => (Err(JoinError::ShuttingDown), State::ShuttingDown),
                 socket::JoinError::Rejected(payload) => {
-                    (Err(channel::JoinError::Rejected(payload)), State::Left)
+                    (Err(JoinError::Rejected(payload)), State::Left)
                 }
                 socket::JoinError::Disconnected => {
-                    (Err(channel::JoinError::SocketDisconnected), rejoin.wait())
+                    (Err(JoinError::SocketDisconnected), rejoin.wait())
                 }
-                socket::JoinError::Timeout => (Err(channel::JoinError::Timeout), rejoin.wait()),
+                socket::JoinError::Timeout => (Err(JoinError::Timeout), rejoin.wait()),
             },
         };
 
-        Self::send_to_channel_txs(channel_joined_txs, channel_joined_result);
+        State::send_to_channel_txs(channel_joined_txs, channel_joined_result);
 
         next_state
     }
@@ -393,10 +434,10 @@ impl Listener {
 
     async fn socket_join(
         &self,
-        state: State,
+        mut state: State,
         created_at: Instant,
         rejoin: Rejoin,
-        channel_joined_txs: Vec<oneshot::Sender<Result<(), channel::JoinError>>>,
+        channel_joined_txs: Vec<oneshot::Sender<Result<(), JoinError>>>,
     ) -> Result<State, ShutdownError> {
         match self
             .socket
@@ -409,11 +450,18 @@ impl Listener {
             .await
         {
             Ok(socket_joined_rx) => {
-                if let State::Leaving {
-                    channel_left_txs, ..
-                } = state
+                let channel_left_txs = if let State::Leaving(Leaving {
+                    ref mut channel_left_txs,
+                    ..
+                }) = state
                 {
-                    Self::send_to_channel_txs(channel_left_txs, Err(LeaveError::JoinBeforeLeft));
+                    Some(channel_left_txs.drain(..).collect())
+                } else {
+                    None
+                };
+
+                if let Some(channel_left_txs) = channel_left_txs {
+                    State::send_to_channel_txs(channel_left_txs, Err(LeaveError::JoinBeforeLeft));
                 };
 
                 Ok(State::Joining(Joining {
@@ -428,19 +476,20 @@ impl Listener {
 
     fn socket_shutdown(state: State) -> ShutdownError {
         match state {
-            State::NeverJoined
+            State::WaitingForSocketToConnect { .. }
+            | State::WaitingToJoin { .. }
             | State::WaitingToRejoin { .. }
             | State::Joined { .. }
-            | State::Left
+            | State::Left { .. }
             | State::ShuttingDown => {}
             State::Joining(Joining {
                 channel_joined_txs, ..
             }) => {
-                Self::send_to_channel_txs(channel_joined_txs, Err(channel::JoinError::Shutdown));
+                State::send_to_channel_txs(channel_joined_txs, Err(JoinError::Shutdown));
             }
-            State::Leaving {
+            State::Leaving(Leaving {
                 channel_left_txs, ..
-            } => Self::send_to_channel_txs(channel_left_txs, Err(LeaveError::SocketShutdown)),
+            }) => State::send_to_channel_txs(channel_left_txs, Err(LeaveError::SocketShutdown)),
         }
 
         ShutdownError::SocketShutdown
@@ -453,69 +502,65 @@ impl Listener {
         left_tx: oneshot::Sender<Result<(), LeaveError>>,
     ) -> State {
         match state {
-            State::NeverJoined | State::Left | State::ShuttingDown => {
+            State::WaitingForSocketToConnect { .. }
+            | State::WaitingToJoin { .. }
+            | State::Left { .. }
+            | State::ShuttingDown => {
                 left_tx.send(Ok(())).ok();
 
                 state
             }
-            State::Joining { .. } => match self.socket_leave(state, left_tx).await {
-                (
-                    State::Joining(Joining {
-                        channel_joined_txs, ..
-                    }),
-                    Some(next_state @ State::Leaving { .. }),
-                ) => {
-                    Self::send_to_channel_txs(
-                        channel_joined_txs,
-                        Err(channel::JoinError::LeavingWhileJoining),
-                    );
+            State::Joining(joining) => {
+                match self
+                    .socket
+                    .leave(self.topic.clone(), self.join_reference.clone())
+                    .await
+                {
+                    Ok(socket_left_rx) => {
+                        State::send_to_channel_txs(
+                            joining.channel_joined_txs,
+                            Err(JoinError::LeavingWhileJoining),
+                        );
 
-                    next_state
+                        State::Leaving(Leaving {
+                            socket_left_rx,
+                            channel_left_txs: vec![left_tx],
+                        })
+                    }
+                    Err(leave_error) => {
+                        left_tx.send(Err(leave_error)).ok();
+
+                        State::Joining(joining)
+                    }
                 }
-                (_, Some(next_state)) => next_state,
-                (unchanged_state, None) => unchanged_state,
-            },
-            State::Joined { .. } => match self.socket_leave(state, left_tx).await {
-                (_, Some(next_state)) => next_state,
-                (unchanged_state, None) => unchanged_state,
+            }
+            State::Joined(joined) => match self
+                .socket
+                .leave(self.topic.clone(), self.join_reference.clone())
+                .await
+            {
+                Ok(socket_left_rx) => State::Leaving(Leaving {
+                    socket_left_rx,
+                    channel_left_txs: vec![left_tx],
+                }),
+                Err(leave_error) => {
+                    left_tx.send(Err(leave_error)).ok();
+
+                    State::Joined(joined)
+                }
             },
             State::WaitingToRejoin { .. } => {
                 left_tx.send(Ok(())).ok();
 
                 State::Left
             }
-            State::Leaving {
+            State::Leaving(Leaving {
                 ref mut channel_left_txs,
                 ..
-            } => {
+            }) => {
                 channel_left_txs.push(left_tx);
 
                 state
-            }
-        }
-    }
-
-    async fn socket_leave(
-        &self,
-        state: State,
-        left_tx: oneshot::Sender<Result<(), LeaveError>>,
-    ) -> (State, Option<State>) {
-        match self
-            .socket
-            .leave(self.topic.clone(), self.join_reference.clone())
-            .await
-        {
-            Ok(socket_left_rx) => (
-                state,
-                Some(State::Leaving {
-                    socket_left_rx,
-                    channel_left_txs: vec![left_tx],
-                }),
-            ),
-            Err(leave_error) => {
-                left_tx.send(Err(leave_error)).ok();
-
-                (state, None)
             }
         }
     }
@@ -557,77 +602,9 @@ impl Listener {
         self.handle_event(&push.event, push.payload.clone()).await
     }
 
-    async fn broadcast_result_received(
-        &self,
-        joined: Joined,
-        broadcast_result: Result<Broadcast, broadcast::error::RecvError>,
-    ) -> Result<State, ShutdownError> {
-        match broadcast_result {
-            Ok(broadcast) => {
-                self.broadcast_received(broadcast).await;
-
-                Ok(State::Joined(joined))
-            }
-            Err(recv_error) => match recv_error {
-                broadcast::error::RecvError::Closed => {
-                    Err(Self::socket_shutdown(State::Joined(joined)))
-                }
-                broadcast::error::RecvError::Lagged(lag) => {
-                    debug!("broadcasts lagged {} messages", lag);
-
-                    Ok(State::Joined(joined))
-                }
-            },
-        }
-    }
-
     async fn broadcast_received(&self, broadcast: Broadcast) {
         self.handle_event(&broadcast.event, broadcast.payload.clone())
             .await
-    }
-
-    fn left_result_received(
-        &self,
-        joined: Joined,
-        left_result: Result<Left, oneshot::error::RecvError>,
-    ) -> State {
-        match left_result {
-            Ok(left) => match left {
-                Left::ServerDisconnected => {
-                    debug!("Server told socket to disconnect.  Will not reconnect socket, so will not rejoin channel.");
-
-                    State::Left
-                }
-                Left::SocketDisconnect => {
-                    debug!("Socket::disconnected() called.  Will not reconnect socket, so will not rejoin channel.");
-
-                    State::Left
-                }
-                Left::SocketShutdown => {
-                    debug!("Socket::shutdown() called.  Will not reconnect socket, so will not rejoin channel.");
-
-                    State::ShuttingDown
-                }
-                Left::SocketReconnect => {
-                    debug!(
-                        "Socket disconnected implicitly.  Will rejoin channel {} as {}.",
-                        &self.topic, &self.join_reference
-                    );
-
-                    joined.wait_to_rejoin()
-                }
-                Left::Left => {
-                    debug!("Channel left explicitly.  Will not rejoin.");
-
-                    State::Left
-                }
-            },
-            Err(_) => {
-                debug!("Got receive error instead of disconnect notification from socket.  Attempting to rejoin channel {} as {}.", &self.topic, &self.join_reference);
-
-                joined.wait_to_rejoin()
-            }
-        }
     }
 
     async fn handle_event(&self, event: &Event, payload: Arc<Payload>) {
@@ -638,37 +615,6 @@ impl Listener {
                 tokio::spawn(handler(payload.clone()));
                 task::consume_budget().await;
             }
-        }
-    }
-
-    async fn left_result_result_received(
-        &self,
-        state: State,
-        left_result_result: Result<Result<(), LeaveError>, oneshot::error::RecvError>,
-    ) -> Result<State, ShutdownError> {
-        match left_result_result {
-            Ok(left_result) => {
-                if let State::Leaving {
-                    channel_left_txs, ..
-                } = state
-                {
-                    Self::send_to_channel_txs(channel_left_txs, left_result);
-                }
-
-                Ok(State::Left)
-            }
-            Err(_) => Err(Self::socket_shutdown(state)),
-        }
-    }
-
-    fn send_to_channel_txs<E>(
-        mut channel_txs: Vec<oneshot::Sender<Result<(), E>>>,
-        result: Result<(), E>,
-    ) where
-        E: Clone,
-    {
-        for channel_tx in channel_txs.drain(0..) {
-            channel_tx.send(result.clone()).ok();
         }
     }
 }
@@ -696,20 +642,21 @@ pub(super) enum StateCommand {
         created_at: Instant,
         /// How long after `created_at` must the join complete
         timeout: Duration,
-        joined_tx: oneshot::Sender<Result<(), channel::JoinError>>,
+        joined_tx: oneshot::Sender<Result<(), JoinError>>,
     },
     Leave {
         left_tx: oneshot::Sender<Result<(), LeaveError>>,
     },
-    Shutdown,
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum LeaveError {
     #[error("timeout joining channel")]
     Timeout,
+    #[error("channel shutting down")]
+    ShuttingDown,
     #[error("channel already shutdown")]
-    ChannelShutdown,
+    Shutdown,
     #[error("socket already shutdown")]
     SocketShutdown,
     #[error("web socket error {0}")]
@@ -728,7 +675,7 @@ pub enum LeaveError {
 }
 impl From<mpsc::error::SendError<StateCommand>> for LeaveError {
     fn from(_: mpsc::error::SendError<StateCommand>) -> Self {
-        LeaveError::ChannelShutdown
+        LeaveError::Shutdown
     }
 }
 impl From<socket::listener::ShutdownError> for LeaveError {
@@ -764,27 +711,178 @@ pub(crate) struct Cast {
 }
 
 #[must_use]
-enum State {
-    NeverJoined,
+pub(crate) enum State {
+    WaitingForSocketToConnect {
+        rejoin: Option<Rejoin>,
+    },
+    WaitingToJoin,
     Joining(Joining),
     WaitingToRejoin {
         sleep: Pin<Box<Sleep>>,
         rejoin: Rejoin,
     },
     Joined(Joined),
-    Leaving {
-        socket_left_rx: oneshot::Receiver<Result<(), LeaveError>>,
-        channel_left_txs: Vec<oneshot::Sender<Result<(), LeaveError>>>,
-    },
+    Leaving(Leaving),
     Left,
     ShuttingDown,
+}
+impl State {
+    pub fn status(&self) -> Status {
+        match self {
+            State::WaitingForSocketToConnect { .. } => Status::WaitingForSocketToConnect,
+            State::WaitingToJoin => Status::WaitingToJoin,
+            State::Joining(_) => Status::Joining,
+            State::WaitingToRejoin { .. } => Status::WaitingToRejoin,
+            State::Joined { .. } => Status::Joined,
+            State::Leaving { .. } => Status::Leaving,
+            State::Left => Status::Left,
+            State::ShuttingDown => Status::ShuttingDown,
+        }
+    }
+
+    fn connectivity_changed(self, connectivity: Connectivity) -> Self {
+        let prefix = format!(
+            "Received connectivity change {:?} and transitions from {:#?} to ",
+            connectivity, self
+        );
+
+        let next_state = match self {
+            State::WaitingForSocketToConnect { rejoin } => match connectivity {
+                Connectivity::Connected => match rejoin {
+                    None => State::WaitingToJoin,
+                    Some(rejoin) => rejoin.wait(),
+                },
+                Connectivity::Disconnected(disconnected) => match disconnected {
+                    Disconnected::ServerDisconnected
+                    | Disconnected::Disconnect
+                    | Disconnected::Reconnect => self,
+                    Disconnected::Shutdown => State::ShuttingDown,
+                },
+            },
+            State::WaitingToJoin | State::Left => match connectivity {
+                Connectivity::Connected => self,
+                Connectivity::Disconnected(disconnected) => match disconnected {
+                    Disconnected::ServerDisconnected
+                    | Disconnected::Disconnect
+                    | Disconnected::Reconnect => State::WaitingForSocketToConnect { rejoin: None },
+                    Disconnected::Shutdown => State::ShuttingDown,
+                },
+            },
+            State::Joining(Joining {
+                channel_joined_txs,
+                rejoin,
+                ..
+            }) => match connectivity {
+                Connectivity::Connected | Connectivity::Disconnected(Disconnected::Reconnect) => {
+                    Self::send_to_channel_txs(
+                        channel_joined_txs,
+                        Err(JoinError::SocketDisconnected),
+                    );
+
+                    State::WaitingForSocketToConnect {
+                        rejoin: Some(rejoin),
+                    }
+                }
+                Connectivity::Disconnected(Disconnected::ServerDisconnected)
+                | Connectivity::Disconnected(Disconnected::Disconnect) => {
+                    State::WaitingForSocketToConnect { rejoin: None }
+                }
+                Connectivity::Disconnected(Disconnected::Shutdown) => State::ShuttingDown,
+            },
+            State::WaitingToRejoin { sleep, rejoin } => match connectivity {
+                Connectivity::Connected => State::WaitingToRejoin { sleep, rejoin },
+                Connectivity::Disconnected(disconnected) => match disconnected {
+                    Disconnected::ServerDisconnected | Disconnected::Disconnect => {
+                        State::WaitingForSocketToConnect { rejoin: None }
+                    }
+                    Disconnected::Shutdown => State::ShuttingDown,
+                    Disconnected::Reconnect => State::WaitingForSocketToConnect {
+                        rejoin: Some(rejoin),
+                    },
+                },
+            },
+            State::Joined(joined) => match connectivity {
+                Connectivity::Connected | Connectivity::Disconnected(Disconnected::Reconnect) => {
+                    State::WaitingForSocketToConnect {
+                        rejoin: Some(joined.rejoin()),
+                    }
+                }
+                Connectivity::Disconnected(Disconnected::ServerDisconnected)
+                | Connectivity::Disconnected(Disconnected::Disconnect) => {
+                    State::WaitingForSocketToConnect { rejoin: None }
+                }
+                Connectivity::Disconnected(Disconnected::Shutdown) => State::ShuttingDown,
+            },
+            State::Leaving(Leaving {
+                channel_left_txs, ..
+            }) => match connectivity {
+                Connectivity::Connected => {
+                    Self::send_to_channel_txs(channel_left_txs, Ok(()));
+
+                    State::Left
+                }
+                Connectivity::Disconnected(disconnected) => match disconnected {
+                    Disconnected::ServerDisconnected | Disconnected::Disconnect => {
+                        State::WaitingForSocketToConnect { rejoin: None }
+                    }
+                    Disconnected::Shutdown => State::ShuttingDown,
+                    Disconnected::Reconnect => {
+                        Self::send_to_channel_txs(channel_left_txs, Ok(()));
+
+                        State::WaitingForSocketToConnect { rejoin: None }
+                    }
+                },
+            },
+            State::ShuttingDown => self,
+        };
+
+        debug!("{}{:#?}", prefix, next_state);
+
+        next_state
+    }
+
+    fn shutdown(self) -> Self {
+        match self {
+            State::WaitingForSocketToConnect { .. }
+            | State::WaitingToJoin { .. }
+            | State::WaitingToRejoin { .. }
+            | State::Joined(_)
+            | State::Left { .. }
+            | State::ShuttingDown => (),
+            State::Joining(Joining {
+                channel_joined_txs, ..
+            }) => {
+                Self::send_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
+            }
+            State::Leaving(Leaving {
+                channel_left_txs, ..
+            }) => Self::send_to_channel_txs(channel_left_txs, Err(LeaveError::ShuttingDown)),
+        };
+
+        State::ShuttingDown
+    }
+
+    fn send_to_channel_txs<E>(
+        mut channel_txs: Vec<oneshot::Sender<Result<(), E>>>,
+        result: Result<(), E>,
+    ) where
+        E: Clone,
+    {
+        for channel_tx in channel_txs.drain(0..) {
+            channel_tx.send(result.clone()).ok();
+        }
+    }
 }
 impl Debug for State {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            State::NeverJoined => f.write_str("NeverJoined"),
+            State::WaitingForSocketToConnect { rejoin, .. } => f
+                .debug_struct("WaitingForSocketToConnect")
+                .field("rejoin", rejoin)
+                .finish_non_exhaustive(),
+            State::WaitingToJoin => f.debug_struct("WaitingToJoin").finish_non_exhaustive(),
             State::Joining(joining) => f.debug_tuple("Joining").field(joining).finish(),
-            State::WaitingToRejoin { sleep, rejoin } => f
+            State::WaitingToRejoin { sleep, rejoin, .. } => f
                 .debug_struct("WaitingToRejoin")
                 .field(
                     "duration_until_sleep_over",
@@ -794,7 +892,7 @@ impl Debug for State {
                 .finish(),
             State::Joined(joined) => f.debug_tuple("Joined").field(joined).finish(),
             State::Leaving { .. } => f.debug_struct("Leaving").finish_non_exhaustive(),
-            State::Left => f.write_str("Left"),
+            State::Left { .. } => f.write_str("Left"),
             State::ShuttingDown => f.write_str("ShuttingDown"),
         }
     }
@@ -805,11 +903,11 @@ impl Debug for State {
 pub(crate) struct JoinedChannelReceivers {
     pub push: mpsc::Receiver<Push>,
     pub broadcast: broadcast::Receiver<Broadcast>,
-    pub left: oneshot::Receiver<Left>,
+    pub left: oneshot::Receiver<()>,
 }
 
 #[derive(Copy, Clone, Debug)]
-struct Rejoin {
+pub(crate) struct Rejoin {
     join_timeout: Duration,
     /// Enough for > 1 week of attempts; u8 would only be 42 minutes of attempts.
     attempts: u16,
@@ -829,21 +927,21 @@ impl Rejoin {
         }
     }
 
-    const SLEEP_DURATIONS: &'static [Duration] = &[
-        Duration::from_secs(1),
-        Duration::from_secs(2),
-        Duration::from_secs(5),
-        Duration::from_secs(10),
-    ];
-
     fn sleep_duration(&self) -> Duration {
-        Self::SLEEP_DURATIONS[(self.attempts as usize).min(Self::SLEEP_DURATIONS.len() - 1)]
+        self.join_timeout * self.sleep_duration_multiplier()
     }
+
+    fn sleep_duration_multiplier(&self) -> u32 {
+        Self::SLEEP_DURATION_MULTIPLIERS
+            [(self.attempts as usize).min(Self::SLEEP_DURATION_MULTIPLIERS.len() - 1)]
+    }
+
+    const SLEEP_DURATION_MULTIPLIERS: &'static [u32] = &[0, 1, 2, 5, 10];
 }
 
-struct Joining {
+pub(crate) struct Joining {
     socket_joined_rx: oneshot::Receiver<Result<JoinedChannelReceivers, socket::JoinError>>,
-    channel_joined_txs: Vec<oneshot::Sender<Result<(), channel::JoinError>>>,
+    channel_joined_txs: Vec<oneshot::Sender<Result<(), JoinError>>>,
     rejoin: Rejoin,
 }
 impl Debug for Joining {
@@ -854,17 +952,13 @@ impl Debug for Joining {
     }
 }
 
-struct Joined {
+pub(crate) struct Joined {
     push_rx: mpsc::Receiver<Push>,
     broadcast_rx: broadcast::Receiver<Broadcast>,
-    left_rx: oneshot::Receiver<Left>,
+    left_rx: oneshot::Receiver<()>,
     join_timeout: Duration,
 }
 impl Joined {
-    fn wait_to_rejoin(self) -> State {
-        self.rejoin().wait()
-    }
-
     fn rejoin(self) -> Rejoin {
         Rejoin {
             join_timeout: self.join_timeout,
@@ -877,6 +971,18 @@ impl Debug for Joined {
         f.debug_struct("Joined")
             .field("join_timeout", &self.join_timeout)
             .finish_non_exhaustive()
+    }
+}
+
+pub(crate) struct Leaving {
+    socket_left_rx: oneshot::Receiver<Result<(), LeaveError>>,
+    channel_left_txs: Vec<oneshot::Sender<Result<(), LeaveError>>>,
+}
+impl Leaving {
+    fn left(self, left_result: Result<(), LeaveError>) -> State {
+        State::send_to_channel_txs(self.channel_left_txs, left_result);
+
+        State::Left
     }
 }
 
