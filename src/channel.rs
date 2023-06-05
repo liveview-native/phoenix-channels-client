@@ -208,19 +208,20 @@ impl Channel {
     /// Returns a `SubscriptionRef` which can be used to unsubscribe the handler.
     ///
     /// You may also unsubscribe all handlers for `event` using `Channel::clear`.
-    pub async fn on<E>(
+    pub async fn on<E, H>(
         &self,
         event: E,
-        handler: EventHandler,
+        handler: H,
     ) -> Result<SubscriptionReference, SubscribeError>
     where
         E: Into<Event>,
+        H: Fn(Arc<Payload>) -> BoxFuture<'static, ()> + Send + Sync + 'static
     {
         let (subscription_reference_sender, subscription_reference_receiver) = oneshot::channel();
         self.subscription_command_sender
             .send(SubscriptionCommand::Subscribe(Subscribe {
                 event: event.into(),
-                handler,
+                handler: Box::new(handler),
                 subscription_reference_sender,
             }))
             .await?;

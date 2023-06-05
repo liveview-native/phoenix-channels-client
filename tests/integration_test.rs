@@ -176,7 +176,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
     receiver_channel
         .on(
             EVENT,
-            Box::new(move |payload| {
+            move |payload| {
                 let async_expected_received_payload = expected_received_payload.clone();
                 let async_on_notify = on_notify.clone();
 
@@ -185,7 +185,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
 
                     async_on_notify.notify_one();
                 })
-            }),
+            },
         )
         .await
         .unwrap();

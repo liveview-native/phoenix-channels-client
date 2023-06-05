@@ -70,13 +70,13 @@ async fn main() {
     let channel = socket.channel("channel:mytopic", None).await.unwrap();
     let some_event_channel = channel.clone();
     // Register an event handler, save the ref returned and use `off` to unsubscribe
-    let subscription_reference  = channel.on("some_event", Box::new(move |payload| {
+    let subscription_reference  = channel.on("some_event", move |payload| {
         let async_channel = some_event_channel.clone();
         
         Box::pin(async move {
             println!("channel received {} from topic '{}'", payload, async_channel.topic());
         })
-    })).await.unwrap();
+    }).await.unwrap();
     // Join the channel with a 15 second timeout
     channel.join(Duration::from_secs(15)).await.unwrap();
     
