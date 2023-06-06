@@ -1,16 +1,16 @@
-use flexstr::SharedStr;
 use std::fmt;
 use std::mem;
 use std::str::{self, FromStr};
 use std::sync::Arc;
 
-use crate::join_reference::JoinReference;
-use crate::EventPayload;
+use flexstr::SharedStr;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message as SocketMessage;
 
+use crate::join_reference::JoinReference;
 use crate::reference::Reference;
 use crate::topic::Topic;
+use crate::EventPayload;
 
 /// Occurs when decoding messages received from the server
 #[doc(hidden)]
@@ -128,8 +128,8 @@ impl Message {
     /// See the Phoenix Channels js client for reference.
     fn encode_binary(self) -> Result<Vec<u8>, MessageEncodingError> {
         let (join_ref, reference, topic, event, mut payload): (
-            Arc<String>,
-            Arc<String>,
+            SharedStr,
+            SharedStr,
             SharedStr,
             String,
             Vec<u8>,
@@ -139,7 +139,7 @@ impl Message {
                 payload,
                 reference,
             }) => (
-                Arc::new(String::new()),
+                "".into(),
                 reference.map(From::from).unwrap_or_default(),
                 "phoenix".into(),
                 event.to_string(),
@@ -149,8 +149,8 @@ impl Message {
                 topic,
                 event_payload,
             }) => (
-                Arc::new(String::new()),
-                Arc::new(String::new()),
+                "".into(),
+                "".into(),
                 topic.into(),
                 event_payload.event.to_string(),
                 Payload::clone(&event_payload.payload)
@@ -829,7 +829,7 @@ mod tests {
             Message::Control(Control {
                 event: Event::User("event_name".to_string()),
                 payload: Payload::Binary(vec![0, 1, 2, 3]),
-                reference: Some(Reference(Arc::new("reference".to_string()))),
+                reference: Some("reference".into()),
             })
             .encode()
             .unwrap(),
@@ -846,7 +846,7 @@ mod tests {
             Message::Control(Control {
                 event: Event::User("event_name".to_string()),
                 payload: Payload::Value(json!({ "key": "value" })),
-                reference: Some(Reference(Arc::new("reference".to_string()))),
+                reference: Some("reference".into()),
             })
             .encode()
             .unwrap(),

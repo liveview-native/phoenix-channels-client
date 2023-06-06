@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
+
+use flexstr::SharedStr;
 
 use crate::reference::Reference;
 
@@ -25,26 +26,6 @@ impl Display for JoinReference {
         write!(f, "{}", self.0)
     }
 }
-impl From<JoinReference> for Arc<String> {
-    fn from(join_reference: JoinReference) -> Self {
-        join_reference.0.into()
-    }
-}
-impl From<JoinReference> for serde_json::Value {
-    fn from(join_reference: JoinReference) -> Self {
-        serde_json::Value::String(join_reference.to_string())
-    }
-}
-impl From<&JoinReference> for Arc<String> {
-    fn from(join_reference: &JoinReference) -> Self {
-        join_reference.0.clone().into()
-    }
-}
-impl From<&JoinReference> for serde_json::Value {
-    fn from(join_reference: &JoinReference) -> Self {
-        serde_json::Value::String(join_reference.to_string())
-    }
-}
 impl From<&str> for JoinReference {
     fn from(s: &str) -> Self {
         JoinReference(s.into())
@@ -53,5 +34,22 @@ impl From<&str> for JoinReference {
 impl From<String> for JoinReference {
     fn from(string: String) -> Self {
         JoinReference(string.into())
+    }
+}
+
+impl From<JoinReference> for SharedStr {
+    fn from(join_reference: JoinReference) -> Self {
+        join_reference.0.into()
+    }
+}
+
+impl From<JoinReference> for serde_json::Value {
+    fn from(join_reference: JoinReference) -> Self {
+        serde_json::Value::String(join_reference.to_string())
+    }
+}
+impl From<&JoinReference> for serde_json::Value {
+    fn from(join_reference: &JoinReference) -> Self {
+        serde_json::Value::String(join_reference.to_string())
     }
 }

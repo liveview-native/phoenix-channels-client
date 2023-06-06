@@ -1,11 +1,11 @@
 pub(crate) mod listener;
 
-use flexstr::SharedStr;
 use std::panic;
 use std::sync::Arc;
 use std::time::Duration;
 
 use atomic_take::AtomicTake;
+use flexstr::SharedStr;
 use log::error;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;

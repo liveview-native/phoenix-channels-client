@@ -1,9 +1,3 @@
-use flexstr::SharedStr;
-use futures::stream::FuturesUnordered;
-use futures::SinkExt;
-use futures::StreamExt;
-use log::{debug, error};
-use serde_json::Value;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -13,6 +7,13 @@ use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+
+use flexstr::SharedStr;
+use futures::stream::FuturesUnordered;
+use futures::SinkExt;
+use futures::StreamExt;
+use log::{debug, error};
+use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;

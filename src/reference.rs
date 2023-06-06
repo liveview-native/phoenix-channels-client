@@ -1,24 +1,24 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
 
+use flexstr::{shared_fmt, SharedStr, ToSharedStr};
 use uuid::Uuid;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct Reference(pub Arc<String>);
+pub struct Reference(pub SharedStr);
 impl Reference {
     pub fn new() -> Self {
         Self::prefixed("")
     }
 
     fn prefixed(prefix: &str) -> Self {
-        Self(Arc::new(format!(
+        Self(shared_fmt!(
             "{}{}",
             prefix,
             Uuid::new_v4()
                 .hyphenated()
                 .encode_upper(&mut Uuid::encode_buffer())
-        )))
+        ))
     }
 
     pub fn heartbeat() -> Self {
@@ -36,7 +36,7 @@ impl Debug for Reference {
 }
 impl Default for Reference {
     fn default() -> Self {
-        Reference(Arc::new(String::new()))
+        Reference("".to_shared_str())
     }
 }
 impl Display for Reference {
@@ -44,33 +44,35 @@ impl Display for Reference {
         write!(f, "{}", self.0)
     }
 }
-impl From<Reference> for Arc<String> {
-    fn from(reference: Reference) -> Self {
-        reference.0.clone()
-    }
-}
-impl From<Reference> for serde_json::Value {
-    fn from(reference: Reference) -> Self {
-        serde_json::Value::String(reference.0.to_string())
-    }
-}
-impl From<&Reference> for Arc<String> {
-    fn from(reference: &Reference) -> Self {
-        reference.0.clone()
-    }
-}
-impl From<&Reference> for serde_json::Value {
-    fn from(reference: &Reference) -> Self {
-        serde_json::Value::String(reference.0.to_string())
-    }
-}
 impl From<&str> for Reference {
     fn from(s: &str) -> Self {
-        s.to_string().into()
+        Reference(s.into())
     }
 }
 impl From<String> for Reference {
     fn from(string: String) -> Self {
         Reference(string.into())
+    }
+}
+
+impl From<Reference> for SharedStr {
+    fn from(reference: Reference) -> Self {
+        reference.0
+    }
+}
+impl From<&Reference> for SharedStr {
+    fn from(reference: &Reference) -> Self {
+        reference.0.clone()
+    }
+}
+
+impl From<Reference> for serde_json::Value {
+    fn from(reference: Reference) -> Self {
+        serde_json::Value::String(reference.0.to_string())
+    }
+}
+impl From<&Reference> for serde_json::Value {
+    fn from(reference: &Reference) -> Self {
+        serde_json::Value::String(reference.0.to_string())
     }
 }
