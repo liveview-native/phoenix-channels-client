@@ -53,3 +53,22 @@ impl From<&JoinReference> for serde_json::Value {
         serde_json::Value::String(join_reference.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn join_reference_debug_without_alternate() {
+        let join_reference: JoinReference = "join_reference".into();
+
+        assert_eq!(format!("{:?}", join_reference), "JoinReference(Reference(\"join_reference\"))")
+    }
+
+    #[test]
+    fn join_reference_debug_with_alternate() {
+        let join_reference: JoinReference = "join_reference".into();
+
+        assert_eq!(format!("{:#?}", join_reference), "\"join_reference\"")
+    }
+}
