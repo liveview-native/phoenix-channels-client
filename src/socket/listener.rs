@@ -29,7 +29,7 @@ use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
 use crate::reference::Reference;
 use crate::socket::ConnectError;
 use crate::topic::Topic;
-use crate::{channel, socket, Channel, Socket};
+use crate::{channel, socket, Channel, EventPayload, Socket};
 use crate::{Event, Payload, PhoenixEvent};
 
 pub(super) struct Listener {
@@ -443,8 +443,10 @@ impl Listener {
         // Send the join message, and register the join
         let message = Message::Push(Push {
             topic: topic.clone(),
-            event: PhoenixEvent::Join.into(),
-            payload: join.payload.clone(),
+            event_payload: EventPayload {
+                event: PhoenixEvent::Join.into(),
+                payload: join.payload.clone(),
+            },
             join_reference: join_reference.clone(),
             reference: Some(reference),
         });
@@ -494,8 +496,10 @@ impl Listener {
 
         let message = Message::Push(Push {
             topic: leave.topic.clone(),
-            event: PhoenixEvent::Leave.into(),
-            payload: Arc::new(Value::Null.into()),
+            event_payload: EventPayload {
+                event: PhoenixEvent::Leave.into(),
+                payload: Arc::new(Value::Null.into()),
+            },
             join_reference: leave.join_reference.clone(),
             reference: None,
         });
@@ -536,8 +540,7 @@ impl Listener {
             join_reference,
             channel_call:
                 channel::Call {
-                    event,
-                    payload,
+                    event_payload,
                     reply_sender,
                 },
         } = call;
@@ -545,13 +548,12 @@ impl Listener {
 
         debug!(
             "sending event {:?} with payload {:#?} to topic {} joined as {} with ref {}, will wait for reply",
-            &event, &payload, &topic, &join_reference, &reference
+            &event_payload.event, &event_payload.payload, &topic, &join_reference, &reference
         );
 
         let message = Message::Push(Push {
             topic: topic.clone(),
-            event,
-            payload: Arc::new(payload),
+            event_payload,
             join_reference: join_reference.clone(),
             reference: Some(reference.clone()),
         });
@@ -583,7 +585,7 @@ impl Listener {
         let Cast {
             topic,
             join_reference,
-            channel_cast: channel::Cast { event, payload },
+            event_payload,
         } = cast;
         let reference = Reference::new();
 
@@ -593,8 +595,7 @@ impl Listener {
         );
         let message = Message::Push(Push {
             topic,
-            event,
-            payload: Arc::new(payload),
+            event_payload,
             join_reference,
             reference: Some(reference),
         });
@@ -1159,7 +1160,7 @@ pub(super) struct Call {
 pub(super) struct Cast {
     pub topic: Topic,
     pub join_reference: JoinReference,
-    pub channel_cast: channel::Cast,
+    pub event_payload: EventPayload,
 }
 
 pub struct Connect {

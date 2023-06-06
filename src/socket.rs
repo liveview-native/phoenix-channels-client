@@ -22,7 +22,7 @@ use crate::socket::listener::{
     ShutdownError, StateCommand,
 };
 use crate::topic::Topic;
-use crate::{channel, Channel};
+use crate::{channel, Channel, EventPayload};
 
 const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 
@@ -232,14 +232,14 @@ impl Socket {
         &self,
         topic: Topic,
         join_reference: JoinReference,
-        channel_cast: channel::Cast,
+        event_payload: EventPayload,
     ) -> Result<(), CastError> {
         match self
             .channel_send_command_sender
             .send(ChannelSendCommand::Cast(listener::Cast {
                 topic,
                 join_reference,
-                channel_cast,
+                event_payload,
             }))
             .await
         {

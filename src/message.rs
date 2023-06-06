@@ -4,6 +4,7 @@ use std::str::{self, FromStr};
 use std::sync::Arc;
 
 use crate::join_reference::JoinReference;
+use crate::EventPayload;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message as SocketMessage;
 
@@ -53,9 +54,9 @@ impl Message {
     pub fn payload(&self) -> &Payload {
         match self {
             Self::Control(ref msg) => &msg.payload,
-            Self::Broadcast(ref msg) => &msg.payload,
+            Self::Broadcast(ref msg) => &msg.event_payload.payload,
             Self::Reply(ref msg) => &msg.payload,
-            Self::Push(ref msg) => &msg.payload,
+            Self::Push(ref msg) => &msg.event_payload.payload,
         }
     }
 }
@@ -76,8 +77,7 @@ pub struct Control {
 #[derive(Debug, Clone)]
 pub struct Broadcast {
     pub topic: Topic,
-    pub event: Event,
-    pub payload: Arc<Payload>,
+    pub event_payload: EventPayload,
 }
 
 /// Represents a reply to a message
@@ -103,8 +103,7 @@ pub struct Reply {
 #[derive(Debug)]
 pub struct Push {
     pub topic: Topic,
-    pub event: Event,
-    pub payload: Arc<Payload>,
+    pub event_payload: EventPayload,
     /// The unique reference of the channel member this message is being sent to/from
     ///
     /// This ID is selected by the client when joining a channel, and must be provided whenever sending a message to the channel.
@@ -147,14 +146,15 @@ impl Message {
             ),
             Self::Broadcast(Broadcast {
                 topic,
-                event,
-                payload,
+                event_payload,
             }) => (
                 Arc::new(String::new()),
                 Arc::new(String::new()),
                 topic.into(),
-                event.to_string(),
-                Payload::clone(&payload).into_binary().unwrap(),
+                event_payload.event.to_string(),
+                Payload::clone(&event_payload.payload)
+                    .into_binary()
+                    .unwrap(),
             ),
             Self::Reply(Reply {
                 topic,
@@ -174,8 +174,7 @@ impl Message {
                 join_reference,
                 reference,
                 topic,
-                event,
-                payload,
+                event_payload,
             }) => (
                 join_reference.into(),
                 reference
@@ -183,8 +182,10 @@ impl Message {
                     .map(From::from)
                     .unwrap_or_else(Default::default),
                 topic.into(),
-                event.to_string(),
-                Payload::clone(&payload).into_binary().unwrap(),
+                event_payload.event.to_string(),
+                Payload::clone(&event_payload.payload)
+                    .into_binary()
+                    .unwrap(),
             ),
         };
 
@@ -269,15 +270,14 @@ impl Message {
             }
             Self::Broadcast(Broadcast {
                 topic,
-                event,
-                payload,
+                event_payload,
             }) => {
                 vec![
                     Value::Null,
                     Value::Null,
                     topic.into(),
-                    event.into(),
-                    Payload::clone(&payload).into_value().unwrap(),
+                    event_payload.event.into(),
+                    Payload::clone(&event_payload.payload).into_value().unwrap(),
                 ]
             }
             Self::Reply(Reply {
@@ -300,15 +300,14 @@ impl Message {
                 join_reference,
                 reference,
                 topic,
-                event,
-                payload,
+                event_payload,
             }) => {
                 vec![
                     join_reference.into(),
                     reference.as_ref().map(From::from).unwrap_or(Value::Null),
                     topic.into(),
-                    event.into(),
-                    Payload::clone(&payload).into_value().unwrap(),
+                    event_payload.event.into(),
+                    Payload::clone(&event_payload.payload).into_value().unwrap(),
                 ]
             }
         });
@@ -364,13 +363,17 @@ impl Message {
                 match (join_reference, reference) {
                     (None, None) => Ok(Message::Broadcast(Broadcast {
                         topic,
-                        event,
-                        payload: Arc::new(Payload::Value(payload)),
+                        event_payload: EventPayload {
+                            event,
+                            payload: Arc::new(Payload::Value(payload)),
+                        },
                     })),
                     (Some(join_reference), None) => Ok(Message::Push(Push {
                         topic,
-                        event,
-                        payload: Arc::new(Payload::Value(payload)),
+                        event_payload: EventPayload {
+                            event,
+                            payload: Arc::new(Payload::Value(payload)),
+                        },
                         join_reference,
                         reference: None,
                     })),
@@ -399,8 +402,10 @@ impl Message {
                         }
                         event => Ok(Message::Push(Push {
                             topic,
-                            event,
-                            payload: Arc::new(Payload::Value(payload)),
+                            event_payload: EventPayload {
+                                event,
+                                payload: Arc::new(Payload::Value(payload)),
+                            },
                             join_reference,
                             reference: Some(reference),
                         })),
@@ -456,8 +461,7 @@ impl Message {
                 let payload = Arc::new(Payload::Binary(bytes.to_vec()));
                 Ok(Message::Broadcast(Broadcast {
                     topic,
-                    event,
-                    payload,
+                    event_payload: EventPayload { event, payload },
                 }))
             }
             BinaryMessageType::Reply => {
@@ -525,8 +529,10 @@ impl Message {
                 let payload = Arc::new(Payload::Binary(bytes.to_vec()));
                 Ok(Message::Push(Push {
                     topic,
-                    event,
-                    payload,
+                    event_payload: EventPayload {
+                        event,
+                        payload
+                    },
                     join_reference,
                     reference: None,
                 }))

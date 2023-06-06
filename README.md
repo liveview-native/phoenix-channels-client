@@ -48,9 +48,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
+use tokio::sync::broadcast;
 use url::Url;
 
-use phoenix_channels_client::Socket;
+use phoenix_channels_client::{Event, EventPayload, Socket};
 
 #[tokio::main]
 async fn main() {
@@ -67,16 +68,28 @@ async fn main() {
     socket.connect(Duration::from_secs(10)).await.unwrap();
 
     // Create a channel with no params
-    let channel = socket.channel("channel:mytopic", None).await.unwrap();
+    let topic = "channel:mytopic";
+    let channel = socket.channel(topic, None).await.unwrap();
     let some_event_channel = channel.clone();
-    // Register an event handler, save the ref returned and use `off` to unsubscribe
-    let subscription_reference  = channel.on("some_event", move |payload| {
-        let async_channel = some_event_channel.clone();
-        
-        Box::pin(async move {
-            println!("channel received {} from topic '{}'", payload, async_channel.topic());
-        })
-    }).await.unwrap();
+    
+    // Events are received as a broadcast with the name of the event and payload associated with the event
+    let mut event_receiver = channel.events();
+    tokio::spawn(async move {
+        loop {
+            match event_receiver.recv().await {
+                Ok(EventPayload { event, payload }) => match event {
+                    Event::User(user_event_name) => println!("channel {} event {} sent with payload {:#?}", topic, user_event_name, payload),
+                    Event::Phoenix(phoenix_event) => println!("channel {} {}", topic, phoenix_event),
+                },
+                Err(recv_error) => match recv_error {
+                    broadcast::error::RecvError::Closed => break,
+                    broadcast::error::RecvError::Lagged(lag) => {
+                        eprintln!("{} events missed on channel {}", lag, topic);
+                    }
+                }
+            }
+        }
+    });
     // Join the channel with a 15 second timeout
     channel.join(Duration::from_secs(15)).await.unwrap();
     

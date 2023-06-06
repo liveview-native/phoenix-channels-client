@@ -1,9 +1,10 @@
 #![cfg_attr(feature = "nightly", feature(assert_matches))]
+#![feature(async_closure)]
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use phoenix_channels_client::{CallError, ConnectError, JoinError, Payload, Socket};
+use phoenix_channels_client::{CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket};
 use serde_json::json;
 use tokio::time;
 
@@ -173,22 +174,21 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
     let on_notify = Arc::new(tokio::sync::Notify::new());
     let test_notify = on_notify.clone();
 
-    receiver_channel
-        .on(
-            EVENT,
-            move |payload| {
-                let async_expected_received_payload = expected_received_payload.clone();
-                let async_on_notify = on_notify.clone();
+    let mut event_receiver = receiver_channel.events();
 
-                Box::pin(async move {
-                    assert_eq!(payload, async_expected_received_payload);
+    tokio::spawn(async move {
+        loop {
+            match event_receiver.recv().await.unwrap() {
+                EventPayload { event: Event::User(user_event_name), payload } if user_event_name == EVENT => {
+                    assert_eq!(payload, expected_received_payload);
 
-                    async_on_notify.notify_one();
-                })
-            },
-        )
-        .await
-        .unwrap();
+                    on_notify.notify_one();
+                    break
+                }
+                _ => continue
+            }
+        }
+    });
 
     let sender_client = connected_socket(url).await;
 

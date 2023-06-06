@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use log::{debug, error};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -17,13 +16,9 @@ use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::http::Response;
 
-pub(crate) use crate::channel::listener::{Call, Cast};
-use crate::channel::listener::{
-    LeaveError, Listener, SendCommand, ShutdownError, StateCommand, Subscribe, SubscriptionCommand,
-    UnsubscribeSubscription,
-};
+pub(crate) use crate::channel::listener::Call;
+use crate::channel::listener::{LeaveError, Listener, SendCommand, ShutdownError, StateCommand};
 use crate::message::*;
-use crate::reference::Reference;
 use crate::socket;
 use crate::socket::listener::Connectivity;
 use crate::socket::Socket;
@@ -51,18 +46,6 @@ impl From<oneshot::error::RecvError> for ChannelError {
     }
 }
 
-/// A reference to a specific event handler
-///
-/// This can be used to unsubscribe a single event handler from a channel
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct SubscriptionReference(Reference);
-impl SubscriptionReference {
-    pub fn new() -> Self {
-        Self(Reference::new())
-    }
-}
-
 #[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u32)]
@@ -77,23 +60,21 @@ pub(crate) enum Status {
     ShuttingDown,
 }
 
-/// An event handler is a thread-safe callback which is invoked every time an event
-/// is received on a channel to which the handler is subscribed.
-///
-/// Handlers receive the payload of the event as arguments, which provides
-/// a fair amount of flexibility for reacting to messages; however, they must adhere to
-/// a few rules:
-///
-/// * They must implement `Send` and `Sync`, this is because the callbacks may be invoked
-/// on any thread; and while the `Sync` bound is onerous, it is required due to the
-/// compiler being unable to see that the callbacks are not able to be invoked concurrently,
-/// though this is not actually the case, as callbacks are only invoked by the listener task.
-///
-/// * They should avoid blocking. These callbacks are invoked from an async context, and so
-/// any blocking they do will block the async runtime from making progress on that thread. If
-/// you need to perform blocking work in the callback, you should invoke `tokio::spawn` with
-/// a new async task; or `tokio::spawn_blocking` for truly blocking tasks.
-pub type EventHandler = Box<dyn Fn(Arc<Payload>) -> BoxFuture<'static, ()> + Send + Sync>;
+#[derive(Clone, Debug)]
+pub struct EventPayload {
+    pub event: Event,
+    pub payload: Arc<Payload>,
+}
+impl From<Broadcast> for EventPayload {
+    fn from(broadcast: Broadcast) -> Self {
+        broadcast.event_payload
+    }
+}
+impl From<Push> for EventPayload {
+    fn from(push: Push) -> Self {
+        push.event_payload
+    }
+}
 
 /// A [Channel] is created with [Socket::channel()]
 ///
@@ -114,7 +95,7 @@ pub struct Channel {
     payload: Arc<Payload>,
     /// The channel status
     status: Arc<AtomicU32>,
-    subscription_command_sender: mpsc::Sender<SubscriptionCommand>,
+    event_payload_sender: broadcast::Sender<EventPayload>,
     shutdown_sender: oneshot::Sender<()>,
     state_command_sender: mpsc::Sender<StateCommand>,
     send_command_sender: mpsc::Sender<SendCommand>,
@@ -136,7 +117,7 @@ impl Channel {
         let payload = Arc::new(payload.unwrap_or_default());
         let status = Arc::new(AtomicU32::new(state.status() as u32));
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
-        let (subscription_command_sender, subscription_command_receiver) = mpsc::channel(10);
+        let (event_payload_sender, _) = broadcast::channel(10);
         let (state_command_sender, state_command_receiver) = mpsc::channel(10);
         let (send_command_sender, send_command_receiver) = mpsc::channel(10);
         let join_handle = Listener::spawn(
@@ -147,7 +128,7 @@ impl Channel {
             state,
             status.clone(),
             shutdown_receiver,
-            subscription_command_receiver,
+            event_payload_sender.clone(),
             state_command_receiver,
             send_command_receiver,
         );
@@ -156,7 +137,7 @@ impl Channel {
             topic,
             payload,
             status,
-            subscription_command_sender,
+            event_payload_sender,
             shutdown_sender,
             state_command_sender,
             send_command_sender,
@@ -203,59 +184,8 @@ impl Channel {
         unsafe { core::mem::transmute::<u32, Status>(self.status.load(Ordering::SeqCst)) }
     }
 
-    /// Registers an event handler to be run the next time this channel receives `event`.
-    ///
-    /// Returns a `SubscriptionRef` which can be used to unsubscribe the handler.
-    ///
-    /// You may also unsubscribe all handlers for `event` using `Channel::clear`.
-    pub async fn on<E, H>(
-        &self,
-        event: E,
-        handler: H,
-    ) -> Result<SubscriptionReference, SubscribeError>
-    where
-        E: Into<Event>,
-        H: Fn(Arc<Payload>) -> BoxFuture<'static, ()> + Send + Sync + 'static
-    {
-        let (subscription_reference_sender, subscription_reference_receiver) = oneshot::channel();
-        self.subscription_command_sender
-            .send(SubscriptionCommand::Subscribe(Subscribe {
-                event: event.into(),
-                handler: Box::new(handler),
-                subscription_reference_sender,
-            }))
-            .await?;
-
-        subscription_reference_receiver.await.map_err(From::from)
-    }
-
-    /// Unsubscribes `subscription` from `event`
-    ///
-    /// To remove all subscriptions for `event`, use [Channel::clear].
-    pub async fn off<E>(&self, event: E, subscription_reference: SubscriptionReference)
-    where
-        E: Into<Event>,
-    {
-        self.subscription_command_sender
-            .send(SubscriptionCommand::UnsubscribeSubscription(
-                UnsubscribeSubscription {
-                    event: event.into(),
-                    subscription_reference,
-                },
-            ))
-            .await
-            .ok();
-    }
-
-    /// Unsubscribes all handlers for `event`.
-    pub async fn clear<E>(&self, event: E)
-    where
-        E: Into<Event>,
-    {
-        self.subscription_command_sender
-            .send(SubscriptionCommand::UnsubscribeEvent(event.into()))
-            .await
-            .ok();
+    pub fn events(&self) -> broadcast::Receiver<EventPayload> {
+        self.event_payload_sender.subscribe()
     }
 
     /// Sends `event` with `payload` to this channel, and returns `Ok` if successful.
@@ -267,7 +197,7 @@ impl Channel {
         T: Into<Payload>,
     {
         let event = event.into();
-        let payload = payload.into();
+        let payload = Arc::new(payload.into());
 
         debug!(
             "sending event {:?} with payload {:#?}, replies ignored",
@@ -275,7 +205,7 @@ impl Channel {
         );
 
         self.send_command_sender
-            .send(SendCommand::Cast(Cast { event, payload }))
+            .send(SendCommand::Cast(EventPayload { event, payload }))
             .await
             .map_err(From::from)
     }
@@ -297,7 +227,7 @@ impl Channel {
         T: Into<Payload>,
     {
         let event = event.into();
-        let payload = payload.into();
+        let payload = Arc::new(payload.into());
 
         debug!(
             "sending event {:?} with timeout {:?} and payload {:#?}",
@@ -308,8 +238,7 @@ impl Channel {
 
         self.send_command_sender
             .send(SendCommand::Call(Call {
-                event,
-                payload,
+                event_payload: EventPayload { event, payload },
                 reply_sender,
             }))
             .await?;
@@ -344,22 +273,6 @@ impl Channel {
             Ok(result) => result,
             Err(join_error) => panic::resume_unwind(join_error.into_panic()),
         }
-    }
-}
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum SubscribeError {
-    #[error("channel already shutdown")]
-    Shutdown,
-}
-impl From<mpsc::error::SendError<SubscriptionCommand>> for SubscribeError {
-    fn from(_: mpsc::error::SendError<SubscriptionCommand>) -> Self {
-        SubscribeError::Shutdown
-    }
-}
-impl From<oneshot::error::RecvError> for SubscribeError {
-    fn from(_: oneshot::error::RecvError) -> Self {
-        SubscribeError::Shutdown
     }
 }
 

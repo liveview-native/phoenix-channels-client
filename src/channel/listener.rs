@@ -1,5 +1,3 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::pin::Pin;
@@ -9,7 +7,6 @@ use std::time::Duration;
 
 use log::debug;
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::task;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, Sleep};
 use tokio_tungstenite::tungstenite;
@@ -17,14 +14,12 @@ use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::http::Response;
 
-use crate::channel::Status;
+use crate::channel::{EventPayload, Status};
 use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Push};
 use crate::socket::listener::{Connectivity, Disconnected};
 use crate::topic::Topic;
-use crate::{
-    channel, socket, Event, EventHandler, JoinError, Payload, Socket, SubscriptionReference,
-};
+use crate::{channel, socket, JoinError, Payload, Socket};
 
 pub(super) struct Listener {
     socket: Arc<Socket>,
@@ -33,9 +28,7 @@ pub(super) struct Listener {
     payload: Arc<Payload>,
     channel_status: Arc<AtomicU32>,
     shutdown_receiver: oneshot::Receiver<()>,
-    subscription_command_receiver: mpsc::Receiver<SubscriptionCommand>,
-    handler_by_subscription_reference_by_event:
-        HashMap<Event, HashMap<SubscriptionReference, EventHandler>>,
+    event_payload_sender: broadcast::Sender<EventPayload>,
     state_command_receiver: mpsc::Receiver<StateCommand>,
     state: Option<State>,
     send_command_receiver: mpsc::Receiver<SendCommand>,
@@ -50,7 +43,7 @@ impl Listener {
         state: State,
         channel_status: Arc<AtomicU32>,
         shutdown_receiver: oneshot::Receiver<()>,
-        subscription_command_receiver: mpsc::Receiver<SubscriptionCommand>,
+        event_payload_sender: broadcast::Sender<EventPayload>,
         state_command_receiver: mpsc::Receiver<StateCommand>,
         send_command_receiver: mpsc::Receiver<SendCommand>,
     ) -> JoinHandle<Result<(), ShutdownError>> {
@@ -62,7 +55,7 @@ impl Listener {
             state,
             channel_status,
             shutdown_receiver,
-            subscription_command_receiver,
+            event_payload_sender,
             state_command_receiver,
             send_command_receiver,
         );
@@ -78,7 +71,7 @@ impl Listener {
         state: State,
         channel_status: Arc<AtomicU32>,
         shutdown_receiver: oneshot::Receiver<()>,
-        subscription_command_receiver: mpsc::Receiver<SubscriptionCommand>,
+        event_payload_sender: broadcast::Sender<EventPayload>,
         state_command_receiver: mpsc::Receiver<StateCommand>,
         send_command_receiver: mpsc::Receiver<SendCommand>,
     ) -> Self {
@@ -90,8 +83,7 @@ impl Listener {
             state: Some(state),
             channel_status,
             shutdown_receiver,
-            subscription_command_receiver,
-            handler_by_subscription_reference_by_event: Default::default(),
+            event_payload_sender,
             state_command_receiver,
             send_command_receiver,
             join_reference: JoinReference::new(),
@@ -114,11 +106,6 @@ impl Listener {
 
                     _ = &mut self.shutdown_receiver => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_receiver.recv() => current_state.connectivity_changed(socket_connectivity),
-                    Some(subscription_command) = self.subscription_command_receiver.recv() => {
-                        self.update_subscriptions(subscription_command).await;
-
-                        current_state
-                    },
                     else => break Ok(())
                 },
                 State::WaitingToJoin => tokio::select! {
@@ -126,11 +113,6 @@ impl Listener {
 
                     _ = &mut self.shutdown_receiver => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_receiver.recv() => current_state.connectivity_changed(socket_connectivity),
-                    Some(subscription_command) = self.subscription_command_receiver.recv() => {
-                        self.update_subscriptions(subscription_command).await;
-
-                        current_state
-                    },
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(current_state, state_command).await?,
                     else => break Ok(())
                 },
@@ -139,11 +121,6 @@ impl Listener {
 
                     _ = &mut self.shutdown_receiver => State::Joining(joining).shutdown(),
                     socket_joined_result = &mut joining.socket_joined_receiver => self.joined_result_result_received(joining, socket_joined_result).await?,
-                    Some(subscription_command) = self.subscription_command_receiver.recv() => {
-                        self.update_subscriptions(subscription_command).await;
-
-                        State::Joining(joining)
-                    },
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(State::Joining(joining), state_command).await?,
                     else => break Ok(())
                 },
@@ -156,11 +133,6 @@ impl Listener {
                     _ = &mut self.shutdown_receiver => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_receiver.recv() => current_state.connectivity_changed(socket_connectivity),
                     () = sleep => self.rejoin(current_state, rejoin).await?,
-                    Some(subscription_command) = self.subscription_command_receiver.recv() => {
-                        self.update_subscriptions(subscription_command).await;
-
-                        current_state
-                    },
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(current_state, state_command).await?,
                     else => break Ok(())
                 },
@@ -174,20 +146,15 @@ impl Listener {
                         _ = &mut self.shutdown_receiver => State::Joined(joined).shutdown(),
                         Ok(socket_connectivity) = self.socket_connectivity_receiver.recv() => State::Joined(joined).connectivity_changed(socket_connectivity),
                         Ok(()) = &mut joined.left_receiver => State::Left,
-                        Some(subscription_command) = self.subscription_command_receiver.recv() => {
-                            self.update_subscriptions(subscription_command).await;
-
-                            State::Joined(joined)
-                        },
                         Some(state_command) = self.state_command_receiver.recv() => self.update_state(State::Joined(joined), state_command).await?,
                         Some(send_command) = self.send_command_receiver.recv() => self.send(joined, send_command).await,
                         Some(push) = joined.push_receiver.recv() => {
-                            self.push_received(push).await;
+                            self.send_event_payload(push);
 
                             State::Joined(joined)
                         }
                         Ok(broadcast) = joined.broadcast_receiver.recv() => {
-                            self.broadcast_received(broadcast).await;
+                            self.send_event_payload(broadcast);
 
                             State::Joined(joined)
                         }
@@ -199,11 +166,6 @@ impl Listener {
                     _ = &mut self.shutdown_receiver => State::Leaving(leaving).shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_receiver.recv() => State::Leaving(leaving).connectivity_changed(socket_connectivity),
                     Ok(left_result) = &mut leaving.socket_left_receiver => leaving.left(left_result),
-                    Some(subscription_command) = self.subscription_command_receiver.recv() => {
-                        self.update_subscriptions(subscription_command).await;
-
-                         State::Leaving(leaving)
-                    },
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(State::Leaving(leaving), state_command).await?,
                     else => break Ok(())
                 },
@@ -212,11 +174,6 @@ impl Listener {
 
                     _ = &mut self.shutdown_receiver => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_receiver.recv() => current_state.connectivity_changed(socket_connectivity),
-                    Some(subscription_command) = self.subscription_command_receiver.recv() => {
-                        self.update_subscriptions(subscription_command).await;
-
-                        current_state
-                    },
                     Some(state_command) = self.state_command_receiver.recv() => self.update_state(current_state, state_command).await?,
                     else => break Ok(())
                 },
@@ -234,62 +191,6 @@ impl Listener {
 
             self.state = Some(next_state);
         }
-    }
-
-    async fn update_subscriptions(&mut self, subscription_command: SubscriptionCommand) {
-        match subscription_command {
-            SubscriptionCommand::Subscribe(subscribe) => self.subscribe(subscribe).await,
-            SubscriptionCommand::UnsubscribeSubscription(unsubscribe_subscription) => {
-                self.unsubscribe_subscription(unsubscribe_subscription)
-            }
-            SubscriptionCommand::UnsubscribeEvent(event) => self.unsubscribe_event(event),
-        }
-    }
-
-    async fn subscribe(&mut self, subscribe: Subscribe) {
-        let Subscribe {
-            event,
-            handler,
-            subscription_reference_sender,
-        } = subscribe;
-
-        let subscription_reference = SubscriptionReference::new();
-
-        self.handler_by_subscription_reference_by_event
-            .entry(event)
-            .or_default()
-            .insert(subscription_reference.clone(), handler);
-
-        subscription_reference_sender
-            .send(subscription_reference)
-            // Don't care if [Channel::on] does away.
-            .ok();
-    }
-
-    fn unsubscribe_subscription(&mut self, unsubscribe_subscription: UnsubscribeSubscription) {
-        let UnsubscribeSubscription {
-            event,
-            subscription_reference,
-        } = unsubscribe_subscription;
-
-        if let Entry::Occupied(mut handler_by_subscription_reference_entry) = self
-            .handler_by_subscription_reference_by_event
-            .entry(event.clone())
-        {
-            let handler_by_subscription_reference =
-                handler_by_subscription_reference_entry.get_mut();
-
-            if let Some(_) = handler_by_subscription_reference.remove(&subscription_reference) {
-                if handler_by_subscription_reference.is_empty() {
-                    handler_by_subscription_reference_entry.remove();
-                }
-            }
-        }
-    }
-
-    fn unsubscribe_event(&mut self, event: Event) {
-        self.handler_by_subscription_reference_by_event
-            .remove(&event);
     }
 
     async fn update_state(
@@ -582,10 +483,14 @@ impl Listener {
         }
     }
 
-    async fn cast(&self, joined: Joined, cast: Cast) -> State {
+    async fn cast(&self, joined: Joined, event_payload: EventPayload) -> State {
         match self
             .socket
-            .cast(self.topic.clone(), self.join_reference.clone(), cast)
+            .cast(
+                self.topic.clone(),
+                self.join_reference.clone(),
+                event_payload,
+            )
             .await
         {
             Ok(()) => State::Joined(joined),
@@ -608,42 +513,9 @@ impl Listener {
         }
     }
 
-    async fn push_received(&self, push: Push) {
-        self.handle_event(&push.event, push.payload.clone()).await
+    fn send_event_payload<EP: Into<EventPayload>>(&self, event_payload: EP) {
+        self.event_payload_sender.send(event_payload.into()).ok();
     }
-
-    async fn broadcast_received(&self, broadcast: Broadcast) {
-        self.handle_event(&broadcast.event, broadcast.payload.clone())
-            .await
-    }
-
-    async fn handle_event(&self, event: &Event, payload: Arc<Payload>) {
-        if let Some(handler_by_subscription_reference) =
-            self.handler_by_subscription_reference_by_event.get(event)
-        {
-            for handler in handler_by_subscription_reference.values() {
-                tokio::spawn(handler(payload.clone()));
-                task::consume_budget().await;
-            }
-        }
-    }
-}
-
-pub(super) enum SubscriptionCommand {
-    Subscribe(Subscribe),
-    UnsubscribeSubscription(UnsubscribeSubscription),
-    UnsubscribeEvent(Event),
-}
-
-pub(super) struct Subscribe {
-    pub event: Event,
-    pub handler: EventHandler,
-    pub subscription_reference_sender: oneshot::Sender<SubscriptionReference>,
-}
-
-pub(super) struct UnsubscribeSubscription {
-    pub event: Event,
-    pub subscription_reference: SubscriptionReference,
 }
 
 pub(super) enum StateCommand {
@@ -703,21 +575,14 @@ impl From<socket::listener::ShutdownError> for LeaveError {
 
 #[derive(Debug)]
 pub(super) enum SendCommand {
-    Cast(Cast),
+    Cast(EventPayload),
     Call(Call),
 }
 
 #[derive(Debug)]
 pub(crate) struct Call {
-    pub event: Event,
-    pub payload: Payload,
+    pub event_payload: EventPayload,
     pub reply_sender: oneshot::Sender<Result<Payload, channel::CallError>>,
-}
-
-#[derive(Debug)]
-pub(crate) struct Cast {
-    pub event: Event,
-    pub payload: Payload,
 }
 
 #[must_use]
