@@ -1,5 +1,6 @@
 pub(crate) mod listener;
 
+use flexstr::SharedStr;
 use std::panic;
 use std::sync::Arc;
 use std::time::Duration;
@@ -159,18 +160,21 @@ impl Socket {
     }
 
     /// Creates a new, unjoined Phoenix Channel
-    pub async fn channel(
+    pub async fn channel<T>(
         self: &Arc<Self>,
-        topic: &str,
+        topic: T,
         payload: Option<Payload>,
-    ) -> Result<Arc<Channel>, ChannelError> {
+    ) -> Result<Arc<Channel>, ChannelError>
+    where
+        T: Into<SharedStr>,
+    {
         let (sender, receiver) = oneshot::channel();
 
         match self
             .channel_spawn_tx
             .send(ChannelSpawn {
                 socket: self.clone(),
-                topic: topic.to_string(),
+                topic: topic.into(),
                 payload,
                 sender,
             })

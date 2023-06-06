@@ -1,3 +1,4 @@
+use flexstr::SharedStr;
 use std::fmt;
 use std::mem;
 use std::str::{self, FromStr};
@@ -129,7 +130,7 @@ impl Message {
         let (join_ref, reference, topic, event, mut payload): (
             Arc<String>,
             Arc<String>,
-            Arc<String>,
+            SharedStr,
             String,
             Vec<u8>,
         ) = match self {
@@ -140,7 +141,7 @@ impl Message {
             }) => (
                 Arc::new(String::new()),
                 reference.map(From::from).unwrap_or_default(),
-                Arc::new("phoenix".to_string()),
+                "phoenix".into(),
                 event.to_string(),
                 payload.into_binary().unwrap(),
             ),
@@ -529,10 +530,7 @@ impl Message {
                 let payload = Arc::new(Payload::Binary(bytes.to_vec()));
                 Ok(Message::Push(Push {
                     topic,
-                    event_payload: EventPayload {
-                        event,
-                        payload
-                    },
+                    event_payload: EventPayload { event, payload },
                     join_reference,
                     reference: None,
                 }))

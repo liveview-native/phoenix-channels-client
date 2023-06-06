@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use flexstr::SharedStr;
 use log::{debug, error};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -109,7 +110,7 @@ impl Channel {
     pub(crate) async fn spawn(
         socket: Arc<Socket>,
         socket_connectivity_rx: broadcast::Receiver<Connectivity>,
-        topic: String,
+        topic: SharedStr,
         payload: Option<Payload>,
         state: listener::State,
     ) -> Self {

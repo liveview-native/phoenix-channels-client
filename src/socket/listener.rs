@@ -1,3 +1,4 @@
+use flexstr::SharedStr;
 use futures::stream::FuturesUnordered;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -1057,7 +1058,7 @@ pub(crate) enum Disconnected {
 
 pub(super) struct ChannelSpawn {
     pub socket: Arc<Socket>,
-    pub topic: String,
+    pub topic: SharedStr,
     pub payload: Option<Payload>,
     pub sender: oneshot::Sender<Channel>,
 }
