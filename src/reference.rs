@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct Reference(Arc<String>);
+pub struct Reference(pub Arc<String>);
 impl Reference {
     pub fn new() -> Self {
         Self::prefixed("")

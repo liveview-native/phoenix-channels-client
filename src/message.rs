@@ -819,3 +819,159 @@ impl FromStr for PhoenixEvent {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn message_encode_with_control_with_binary_payload() {
+        assert_eq!(
+            Message::Control(Control {
+                event: Event::User("event_name".to_string()),
+                payload: Payload::Binary(vec![0, 1, 2, 3]),
+                reference: Some(Reference(Arc::new("reference".to_string()))),
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Binary(vec![
+                0, 0, 9, 7, 10, 114, 101, 102, 101, 114, 101, 110, 99, 101, 112, 104, 111, 101,
+                110, 105, 120, 101, 118, 101, 110, 116, 95, 110, 97, 109, 101, 0, 1, 2, 3
+            ])
+        );
+    }
+
+    #[test]
+    fn message_encode_with_control_with_json_payload() {
+        assert_eq!(
+            Message::Control(Control {
+                event: Event::User("event_name".to_string()),
+                payload: Payload::Value(json!({ "key": "value" })),
+                reference: Some(Reference(Arc::new("reference".to_string()))),
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Text(
+                "[null,\"reference\",\"phoenix\",\"event_name\",{\"key\":\"value\"}]".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn message_encode_with_broadcast_with_binary_payload() {
+        assert_eq!(
+            Message::Broadcast(Broadcast {
+                topic: "channel_topic".into(),
+                event_payload: EventPayload {
+                    event: Event::User("event_name".to_string()),
+                    payload: Arc::new(Payload::Binary(vec![0, 1, 2, 3]))
+                }
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Binary(vec![
+                0, 0, 0, 13, 10, 99, 104, 97, 110, 110, 101, 108, 95, 116, 111, 112, 105, 99, 101,
+                118, 101, 110, 116, 95, 110, 97, 109, 101, 0, 1, 2, 3
+            ])
+        )
+    }
+
+    #[test]
+    fn message_encode_with_broadcast_with_json_payload() {
+        assert_eq!(
+            Message::Broadcast(Broadcast {
+                topic: "channel_topic".into(),
+                event_payload: EventPayload {
+                    event: Event::User("event_name".to_string()),
+                    payload: Arc::new(Payload::Value(json!({ "key": "value" })))
+                }
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Text(
+                "[null,null,\"channel_topic\",\"event_name\",{\"key\":\"value\"}]".to_string()
+            )
+        )
+    }
+
+    #[test]
+    fn message_encode_with_reply_with_binary_payload() {
+        assert_eq!(
+            Message::Reply(Reply {
+                topic: "channel_topic".into(),
+                event: Event::User("event_name".to_string()),
+                payload: Payload::Binary(vec![0, 1, 2, 3]),
+                join_reference: "join_reference".into(),
+                reference: "reference".into(),
+                status: ReplyStatus::Ok,
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Binary(vec![
+                0, 14, 9, 13, 10, 106, 111, 105, 110, 95, 114, 101, 102, 101, 114, 101, 110, 99,
+                101, 114, 101, 102, 101, 114, 101, 110, 99, 101, 99, 104, 97, 110, 110, 101, 108,
+                95, 116, 111, 112, 105, 99, 101, 118, 101, 110, 116, 95, 110, 97, 109, 101, 0, 1,
+                2, 3
+            ])
+        )
+    }
+
+    #[test]
+    fn message_encode_with_reply_with_json_payload() {
+        assert_eq!(
+            Message::Reply(Reply {
+                topic: "channel_topic".into(),
+                event: Event::User("event_name".to_string()),
+                payload: Payload::Value(json!({ "key": "value" })),
+                join_reference: "join_reference".into(),
+                reference: "reference".into(),
+                status: ReplyStatus::Ok,
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Text("[\"join_reference\",\"reference\",\"channel_topic\",\"event_name\",{\"key\":\"value\"}]".to_string())
+        )
+    }
+
+    #[test]
+    fn message_encode_with_push_with_binary_payload() {
+        assert_eq!(
+            Message::Push(Push {
+                topic: "channel_topic".into(),
+                event_payload: EventPayload {
+                    event: Event::User("event_name".to_string()),
+                    payload: Arc::new(Payload::Binary(vec![0, 1, 2, 3])),
+                },
+                join_reference: "join_reference".into(),
+                reference: Some("reference".into()),
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Binary(vec![
+                0, 14, 9, 13, 10, 106, 111, 105, 110, 95, 114, 101, 102, 101, 114, 101, 110, 99,
+                101, 114, 101, 102, 101, 114, 101, 110, 99, 101, 99, 104, 97, 110, 110, 101, 108,
+                95, 116, 111, 112, 105, 99, 101, 118, 101, 110, 116, 95, 110, 97, 109, 101, 0, 1,
+                2, 3
+            ])
+        )
+    }
+
+    #[test]
+    fn message_encode_with_push_with_json_payload() {
+        assert_eq!(
+            Message::Push(Push {
+                topic: "channel_topic".into(),
+                event_payload: EventPayload {
+                    event: Event::User("event_name".to_string()),
+                    payload: Arc::new(Payload::Value(json!({ "key": "value" }))),
+                },
+                join_reference: "join_reference".into(),
+                reference: Some("reference".into()),
+            })
+            .encode()
+            .unwrap(),
+            SocketMessage::Text("[\"join_reference\",\"reference\",\"channel_topic\",\"event_name\",{\"key\":\"value\"}]".to_string())
+        )
+    }
+}

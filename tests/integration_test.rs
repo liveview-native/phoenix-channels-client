@@ -4,7 +4,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use phoenix_channels_client::{CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket};
+use phoenix_channels_client::{
+    CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
+};
 use serde_json::json;
 use tokio::time;
 
@@ -182,13 +184,16 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
     tokio::spawn(async move {
         loop {
             match event_receiver.recv().await.unwrap() {
-                EventPayload { event: Event::User(user_event_name), payload } if user_event_name == EVENT => {
+                EventPayload {
+                    event: Event::User(user_event_name),
+                    payload,
+                } if user_event_name == EVENT => {
                     assert_eq!(payload, expected_received_payload);
 
                     on_notify.notify_one();
-                    break
+                    break;
                 }
-                _ => continue
+                _ => continue,
             }
         }
     });
