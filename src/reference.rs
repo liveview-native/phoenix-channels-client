@@ -76,3 +76,23 @@ impl From<&Reference> for serde_json::Value {
         serde_json::Value::String(reference.0.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reference_debug_without_alternate() {
+        let reference: Reference = "reference".into();
+
+        assert_eq!(format!("{:?}", reference), "Reference(\"reference\")")
+    }
+
+    #[test]
+    fn reference_debug_with_alternate() {
+        let reference: Reference = "reference".into();
+
+        assert_eq!(format!("{:#?}", reference), "\"reference\"")
+    }
+}
+
