@@ -1,9 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use flexstr::{shared_fmt, SharedStr, ToSharedStr};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct Reference(pub SharedStr);
 impl Reference {
@@ -66,20 +67,43 @@ impl From<&Reference> for SharedStr {
     }
 }
 
-impl From<Reference> for serde_json::Value {
-    fn from(reference: Reference) -> Self {
-        serde_json::Value::String(reference.0.to_string())
-    }
-}
-impl From<&Reference> for serde_json::Value {
-    fn from(reference: &Reference) -> Self {
-        serde_json::Value::String(reference.0.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reference_deserialize() {
+        let reference: Reference = "reference".into();
+
+        assert_eq!(
+            reference,
+            serde_json::from_value(serde_json::Value::String("reference".to_string())).unwrap()
+        )
+    }
+
+    #[test]
+    fn reference_serialize() {
+        let reference: Reference = "reference".into();
+        let json = serde_json::to_value(reference).unwrap();
+
+        assert_eq!(json, serde_json::Value::String("reference".to_string()))
+    }
+
+    #[test]
+    fn option_reference_with_some_serialize() {
+        let option_reference: Option<Reference> = Some("reference".into());
+        let json = serde_json::to_value(option_reference).unwrap();
+
+        assert_eq!(json, serde_json::Value::String("reference".to_string()))
+    }
+
+    #[test]
+    fn option_reference_with_none_serialize() {
+        let option_reference: Option<Reference> = None;
+        let json = serde_json::to_value(option_reference).unwrap();
+
+        assert_eq!(json, serde_json::Value::Null)
+    }
 
     #[test]
     fn reference_debug_without_alternate() {
@@ -95,4 +119,3 @@ mod tests {
         assert_eq!(format!("{:#?}", reference), "\"reference\"")
     }
 }
-

@@ -263,7 +263,7 @@ impl Message {
             }) => {
                 vec![
                     Value::Null,
-                    reference.into(),
+                    serde_json::to_value(reference).unwrap(),
                     "phoenix".into(),
                     event.to_string().into(),
                     payload.into_value().unwrap(),
@@ -291,7 +291,7 @@ impl Message {
             }) => {
                 vec![
                     join_reference.into(),
-                    reference.into(),
+                    serde_json::to_value(reference).unwrap(),
                     topic.into(),
                     event.into(),
                     payload.into_value().unwrap(),
@@ -305,7 +305,7 @@ impl Message {
             }) => {
                 vec![
                     join_reference.into(),
-                    reference.as_ref().map(From::from).unwrap_or(Value::Null),
+                    serde_json::to_value(reference).unwrap(),
                     topic.into(),
                     event_payload.event.into(),
                     Payload::clone(&event_payload.payload).into_value().unwrap(),

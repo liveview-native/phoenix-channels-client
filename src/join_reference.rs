@@ -62,7 +62,10 @@ mod tests {
     fn join_reference_debug_without_alternate() {
         let join_reference: JoinReference = "join_reference".into();
 
-        assert_eq!(format!("{:?}", join_reference), "JoinReference(Reference(\"join_reference\"))")
+        assert_eq!(
+            format!("{:?}", join_reference),
+            "JoinReference(Reference(\"join_reference\"))"
+        )
     }
 
     #[test]
