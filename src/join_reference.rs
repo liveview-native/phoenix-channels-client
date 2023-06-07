@@ -1,10 +1,11 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use flexstr::SharedStr;
+use serde::{Deserialize, Serialize};
 
 use crate::reference::Reference;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct JoinReference(Reference);
 impl JoinReference {
@@ -43,20 +44,31 @@ impl From<JoinReference> for SharedStr {
     }
 }
 
-impl From<JoinReference> for serde_json::Value {
-    fn from(join_reference: JoinReference) -> Self {
-        serde_json::Value::String(join_reference.to_string())
-    }
-}
-impl From<&JoinReference> for serde_json::Value {
-    fn from(join_reference: &JoinReference) -> Self {
-        serde_json::Value::String(join_reference.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn join_reference_deserialize() {
+        let join_reference: JoinReference = "join_reference".into();
+
+        assert_eq!(
+            join_reference,
+            serde_json::from_value(serde_json::Value::String("join_reference".to_string()))
+                .unwrap()
+        )
+    }
+
+    #[test]
+    fn join_reference_serialize() {
+        let join_reference: JoinReference = "join_reference".into();
+        let json = serde_json::to_value(join_reference).unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::Value::String("join_reference".to_string())
+        )
+    }
 
     #[test]
     fn join_reference_debug_without_alternate() {

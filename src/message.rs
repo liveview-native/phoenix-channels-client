@@ -290,7 +290,7 @@ impl Message {
                 ..
             }) => {
                 vec![
-                    join_reference.into(),
+                    serde_json::to_value(join_reference).unwrap(),
                     serde_json::to_value(reference).unwrap(),
                     topic.into(),
                     event.into(),
@@ -304,7 +304,7 @@ impl Message {
                 event_payload,
             }) => {
                 vec![
-                    join_reference.into(),
+                    serde_json::to_value(join_reference).unwrap(),
                     serde_json::to_value(reference).unwrap(),
                     topic.into(),
                     event_payload.event.into(),
