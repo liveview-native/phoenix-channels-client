@@ -1,8 +1,9 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use flexstr::{SharedStr, ToSharedStr};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct Topic(SharedStr);
 
@@ -42,13 +43,25 @@ impl From<Topic> for SharedStr {
     }
 }
 
-impl From<Topic> for serde_json::Value {
-    fn from(topic: Topic) -> Self {
-        topic.0.to_string().into()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn topic_deserialize() {
+        let topic: Topic = "topic".into();
+
+        assert_eq!(
+            topic,
+            serde_json::from_value(serde_json::Value::String("topic".to_string())).unwrap()
+        )
     }
-}
-impl From<&Topic> for serde_json::Value {
-    fn from(topic: &Topic) -> Self {
-        topic.0.to_string().into()
+
+    #[test]
+    fn topic_serialize() {
+        let topic: Topic = "topic".into();
+        let json = serde_json::to_value(topic).unwrap();
+
+        assert_eq!(json, serde_json::Value::String("topic".to_string()))
     }
 }
