@@ -3,6 +3,7 @@ use std::mem;
 use std::str::{self, FromStr};
 use std::sync::Arc;
 
+use bytes::{BufMut, Bytes};
 use flexstr::SharedStr;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message as SocketMessage;
@@ -127,12 +128,12 @@ impl Message {
     ///
     /// See the Phoenix Channels js client for reference.
     fn encode_binary(self) -> Result<Vec<u8>, MessageEncodingError> {
-        let (join_ref, reference, topic, event, mut payload): (
+        let (join_ref, reference, topic, event, payload_bytes): (
             SharedStr,
             SharedStr,
             SharedStr,
             String,
-            Vec<u8>,
+            Bytes,
         ) = match self {
             Self::Control(Control {
                 event,
@@ -190,44 +191,44 @@ impl Message {
             ),
         };
 
-        let join_ref_size: u8 = join_ref
-            .as_bytes()
+        let join_reference_bytes = join_ref.as_bytes();
+        let join_reference_size: u8 = join_reference_bytes
             .len()
             .try_into()
             .map_err(|_| MessageEncodingError)?;
-        let ref_size: u8 = reference
-            .as_bytes()
+        let reference_bytes = reference.as_bytes();
+        let reference_size: u8 = reference_bytes
             .len()
             .try_into()
             .map_err(|_| MessageEncodingError)?;
-        let topic_size: u8 = topic
-            .as_bytes()
+        let topic_bytes = topic.as_bytes();
+        let topic_size: u8 = topic_bytes
             .len()
             .try_into()
             .map_err(|_| MessageEncodingError)?;
-        let event_size: u8 = event
-            .as_bytes()
+        let event_bytes = event.as_bytes();
+        let event_size: u8 = event_bytes
             .len()
             .try_into()
             .map_err(|_| MessageEncodingError)?;
         let buffer_size = (5 * mem::size_of::<u8>())
-            + (join_ref_size as usize)
-            + (ref_size as usize)
+            + (join_reference_size as usize)
+            + (reference_size as usize)
             + (topic_size as usize)
             + (event_size as usize)
-            + payload.len();
+            + payload_bytes.len();
 
-        let mut buffer = Vec::<u8>::with_capacity(buffer_size);
-        buffer.push(BinaryMessageType::Push.into());
-        buffer.push(join_ref_size);
-        buffer.push(ref_size);
-        buffer.push(topic_size);
-        buffer.push(event_size);
-        buffer.extend_from_slice(join_ref.as_bytes());
-        buffer.extend_from_slice(reference.as_bytes());
-        buffer.extend_from_slice(topic.as_bytes());
-        buffer.extend_from_slice(event.as_bytes());
-        buffer.append(&mut payload);
+        let mut buffer = Vec::with_capacity(buffer_size);
+        buffer.put_u8(BinaryMessageType::Push.into());
+        buffer.put_u8(join_reference_size);
+        buffer.put_u8(reference_size);
+        buffer.put_u8(topic_size);
+        buffer.put_u8(event_size);
+        buffer.put_slice(join_reference_bytes);
+        buffer.put_slice(reference_bytes);
+        buffer.put_slice(topic_bytes);
+        buffer.put_slice(event_bytes);
+        buffer.put(payload_bytes);
 
         Ok(buffer)
     }
@@ -253,7 +254,7 @@ impl Message {
                     Value::Null,
                     serde_json::to_value("phoenix").unwrap(),
                     event.into(),
-                    payload.into_value().unwrap(),
+                    Value::clone(&payload.into_value().unwrap()),
                 ]
             }
             Self::Control(Control {
@@ -266,7 +267,7 @@ impl Message {
                     serde_json::to_value(reference).unwrap(),
                     serde_json::to_value("phoenix").unwrap(),
                     event.to_string().into(),
-                    payload.into_value().unwrap(),
+                    Value::clone(payload.value().unwrap()),
                 ]
             }
             Self::Broadcast(Broadcast {
@@ -278,7 +279,7 @@ impl Message {
                     Value::Null,
                     serde_json::to_value(topic).unwrap(),
                     event_payload.event.into(),
-                    Payload::clone(&event_payload.payload).into_value().unwrap(),
+                    Value::clone(event_payload.payload.value().unwrap()),
                 ]
             }
             Self::Reply(Reply {
@@ -294,7 +295,7 @@ impl Message {
                     serde_json::to_value(reference).unwrap(),
                     serde_json::to_value(topic).unwrap(),
                     event.into(),
-                    payload.into_value().unwrap(),
+                    Value::clone(payload.value().unwrap()),
                 ]
             }
             Self::Push(Push {
@@ -308,7 +309,7 @@ impl Message {
                     serde_json::to_value(reference).unwrap(),
                     serde_json::to_value(topic).unwrap(),
                     event_payload.event.into(),
-                    Payload::clone(&event_payload.payload).into_value().unwrap(),
+                    Value::clone(event_payload.payload.value().unwrap()),
                 ]
             }
         });
@@ -366,14 +367,14 @@ impl Message {
                         topic,
                         event_payload: EventPayload {
                             event,
-                            payload: Arc::new(Payload::Value(payload)),
+                            payload: payload.into(),
                         },
                     })),
                     (Some(join_reference), None) => Ok(Message::Push(Push {
                         topic,
                         event_payload: EventPayload {
                             event,
-                            payload: Arc::new(Payload::Value(payload)),
+                            payload: payload.into(),
                         },
                         join_reference,
                         reference: None,
@@ -395,7 +396,7 @@ impl Message {
                             Ok(Message::Reply(Reply {
                                 topic,
                                 event,
-                                payload: Payload::Value(payload),
+                                payload: payload.into(),
                                 join_reference,
                                 reference,
                                 status,
@@ -405,7 +406,7 @@ impl Message {
                             topic,
                             event_payload: EventPayload {
                                 event,
-                                payload: Arc::new(Payload::Value(payload)),
+                                payload: payload.into(),
                             },
                             join_reference,
                             reference: Some(reference),
@@ -414,7 +415,7 @@ impl Message {
                     (None, reference) => match event {
                         event @ Event::Phoenix(_) => Ok(Message::Control(Control {
                             event,
-                            payload: Payload::Value(payload),
+                            payload: payload.into(),
                             reference,
                         })),
                         other => {
@@ -459,7 +460,7 @@ impl Message {
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?
                 .into();
-                let payload = Arc::new(Payload::Binary(bytes.to_vec()));
+                let payload = Bytes::copy_from_slice(bytes).into();
                 Ok(Message::Broadcast(Broadcast {
                     topic,
                     event_payload: EventPayload { event, payload },
@@ -495,7 +496,7 @@ impl Message {
                 .map_err(MessageDecodingError::InvalidUtf8)?
                 .into();
 
-                let payload = Payload::Binary(bytes.to_vec());
+                let payload = Bytes::copy_from_slice(bytes).into();
                 Ok(Message::Reply(Reply {
                     topic,
                     event: Event::Phoenix(PhoenixEvent::Reply),
@@ -527,7 +528,7 @@ impl Message {
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?
                 .into();
-                let payload = Arc::new(Payload::Binary(bytes.to_vec()));
+                let payload = Bytes::copy_from_slice(bytes).into();
                 Ok(Message::Push(Push {
                     topic,
                     event_payload: EventPayload { event, payload },
@@ -640,9 +641,9 @@ impl fmt::Display for ReplyStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Payload {
     /// This payload type is used for all non-binary messages
-    Value(Value),
+    Value(Arc<Value>),
     /// This payload type is used for binary messages
-    Binary(Vec<u8>),
+    Binary(Bytes),
 }
 
 impl Payload {
@@ -660,14 +661,21 @@ impl Payload {
         }
     }
 
-    pub fn into_value(self) -> Option<Value> {
+    pub fn value(&self) -> Option<&Value> {
+        match self {
+            Self::Value(value) => Some(value.as_ref()),
+            _ => None,
+        }
+    }
+
+    pub fn into_value(self) -> Option<Arc<Value>> {
         match self {
             Self::Value(value) => Some(value),
             _ => None,
         }
     }
 
-    pub fn into_binary(self) -> Option<Vec<u8>> {
+    pub fn into_binary(self) -> Option<Bytes> {
         match self {
             Self::Binary(value) => Some(value),
             _ => None,
@@ -677,25 +685,29 @@ impl Payload {
 impl From<Value> for Payload {
     #[inline]
     fn from(value: Value) -> Self {
-        Self::Value(value)
+        Self::Value(Arc::new(value))
+    }
+}
+impl From<Bytes> for Payload {
+    fn from(bytes: Bytes) -> Self {
+        Self::Binary(bytes)
     }
 }
 impl From<Vec<u8>> for Payload {
-    #[inline]
-    fn from(value: Vec<u8>) -> Self {
-        Self::Binary(value)
+    fn from(byte_vec: Vec<u8>) -> Self {
+        Self::Binary(byte_vec.into())
     }
 }
 impl Default for Payload {
     fn default() -> Self {
-        Payload::Value(Value::Object(serde_json::Map::new()))
+        Payload::Value(Arc::new(Value::Object(serde_json::Map::new())))
     }
 }
 impl fmt::Display for Payload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Value(ref value) => write!(f, "{}", value),
-            Self::Binary(ref bytes) => write!(f, "{:?}", bytes.as_slice()),
+            Self::Binary(ref bytes) => write!(f, "{:?}", bytes),
         }
     }
 }
@@ -828,7 +840,7 @@ mod tests {
         assert_eq!(
             Message::Control(Control {
                 event: Event::User("event_name".to_string()),
-                payload: Payload::Binary(vec![0, 1, 2, 3]),
+                payload: binary_payload(),
                 reference: Some("reference".into()),
             })
             .encode()
@@ -845,7 +857,7 @@ mod tests {
         assert_eq!(
             Message::Control(Control {
                 event: Event::User("event_name".to_string()),
-                payload: Payload::Value(json!({ "key": "value" })),
+                payload: json_payload(),
                 reference: Some("reference".into()),
             })
             .encode()
@@ -863,7 +875,7 @@ mod tests {
                 topic: "channel_topic".into(),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
-                    payload: Arc::new(Payload::Binary(vec![0, 1, 2, 3]))
+                    payload: binary_payload()
                 }
             })
             .encode()
@@ -882,7 +894,7 @@ mod tests {
                 topic: "channel_topic".into(),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
-                    payload: Arc::new(Payload::Value(json!({ "key": "value" })))
+                    payload: json_payload()
                 }
             })
             .encode()
@@ -899,7 +911,7 @@ mod tests {
             Message::Reply(Reply {
                 topic: "channel_topic".into(),
                 event: Event::User("event_name".to_string()),
-                payload: Payload::Binary(vec![0, 1, 2, 3]),
+                payload: binary_payload(),
                 join_reference: "join_reference".into(),
                 reference: "reference".into(),
                 status: ReplyStatus::Ok,
@@ -921,7 +933,7 @@ mod tests {
             Message::Reply(Reply {
                 topic: "channel_topic".into(),
                 event: Event::User("event_name".to_string()),
-                payload: Payload::Value(json!({ "key": "value" })),
+                payload: json_payload(),
                 join_reference: "join_reference".into(),
                 reference: "reference".into(),
                 status: ReplyStatus::Ok,
@@ -939,7 +951,7 @@ mod tests {
                 topic: "channel_topic".into(),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
-                    payload: Arc::new(Payload::Binary(vec![0, 1, 2, 3])),
+                    payload: binary_payload(),
                 },
                 join_reference: "join_reference".into(),
                 reference: Some("reference".into()),
@@ -962,7 +974,7 @@ mod tests {
                 topic: "channel_topic".into(),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
-                    payload: Arc::new(Payload::Value(json!({ "key": "value" }))),
+                    payload: json_payload()
                 },
                 join_reference: "join_reference".into(),
                 reference: Some("reference".into()),
@@ -971,5 +983,13 @@ mod tests {
             .unwrap(),
             SocketMessage::Text("[\"join_reference\",\"reference\",\"channel_topic\",\"event_name\",{\"key\":\"value\"}]".to_string())
         )
+    }
+
+    fn binary_payload() -> Payload {
+        vec![0, 1, 2, 3].into()
+    }
+
+    fn json_payload() -> Payload {
+        json!({ "key": "value" }).into()
     }
 }

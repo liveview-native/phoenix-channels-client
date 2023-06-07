@@ -499,7 +499,7 @@ impl Listener {
             topic: leave.topic.clone(),
             event_payload: EventPayload {
                 event: PhoenixEvent::Leave.into(),
-                payload: Arc::new(Value::Null.into()),
+                payload: Value::Null.into(),
             },
             join_reference: leave.join_reference.clone(),
             reference: None,
@@ -789,7 +789,7 @@ impl Connected {
                     &join.topic, &reply.join_reference, &reply.reference, &reply.payload
                 );
 
-                Err(socket::JoinError::Rejected(Arc::new(reply.payload)))
+                Err(socket::JoinError::Rejected(reply.payload))
             }
             ReplyStatus::Ok => {
                 debug!(
@@ -1093,7 +1093,7 @@ pub(crate) struct Join {
     /// The [Channel] join reference
     pub join_reference: JoinReference,
     /// The params sent when `topic` is joined.
-    pub payload: Arc<Payload>,
+    pub payload: Payload,
     /// The instant at which this join must complete
     pub deadline: Instant,
     /// Sends back to [Channel::join] from the server
@@ -1178,7 +1178,7 @@ fn heartbeat_message(reference: Reference) -> tungstenite::Message {
     Message::encode(Message::Control(Control {
         event: Event::Phoenix(PhoenixEvent::Heartbeat),
         reference: Some(reference),
-        payload: Payload::Value(Value::Null),
+        payload: Value::Null.into(),
     }))
     .unwrap()
 }

@@ -145,7 +145,7 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
 
     let channel_error = result.err().unwrap();
 
-    assert_eq!(channel_error, JoinError::Rejected(Arc::new(payload)));
+    assert_eq!(channel_error, JoinError::Rejected(payload));
 }
 
 #[tokio::test]
@@ -174,7 +174,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
     assert!(receiver_channel.is_joined());
 
     const EVENT: &'static str = "send_all";
-    let sent_payload = Arc::new(payload);
+    let sent_payload = payload;
     let expected_received_payload = sent_payload.clone();
     let on_notify = Arc::new(tokio::sync::Notify::new());
     let test_notify = on_notify.clone();
@@ -204,10 +204,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
     sender_channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(sender_channel.is_joined());
 
-    sender_channel
-        .cast(EVENT, sent_payload.as_ref().clone())
-        .await
-        .unwrap();
+    sender_channel.cast(EVENT, sent_payload).await.unwrap();
 
     let result = time::timeout(CALL_TIMEOUT, test_notify.notified()).await;
     assert_matches!(result, Ok(_));
@@ -338,11 +335,11 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn json_payload() -> Payload {
-    Payload::Value(json!({ "status": "testng", "num": 1i64 }))
+    json!({ "status": "testng", "num": 1i64 }).into()
 }
 
 fn binary_payload() -> Payload {
-    Payload::Binary(vec![0, 1, 2, 3])
+    vec![0, 1, 2, 3].into()
 }
 
 #[cfg(target_os = "android")]

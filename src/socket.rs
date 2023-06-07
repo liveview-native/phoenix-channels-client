@@ -189,7 +189,7 @@ impl Socket {
         &self,
         topic: Topic,
         join_reference: JoinReference,
-        payload: Arc<Payload>,
+        payload: Payload,
         deadline: Instant,
     ) -> Result<oneshot::Receiver<Result<JoinedChannelReceivers, JoinError>>, JoinError> {
         let (joined_tx, joined_rx) = oneshot::channel();
@@ -331,7 +331,7 @@ impl From<ShutdownError> for ChannelError {
 #[derive(Debug, thiserror::Error)]
 pub enum JoinError {
     #[error("server rejected join")]
-    Rejected(Arc<Payload>),
+    Rejected(Payload),
     #[error("socket was disconnect while channel was being joined")]
     Disconnected,
     #[error("timeout joining channel")]

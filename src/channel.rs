@@ -64,7 +64,7 @@ pub(crate) enum Status {
 #[derive(Clone, Debug)]
 pub struct EventPayload {
     pub event: Event,
-    pub payload: Arc<Payload>,
+    pub payload: Payload,
 }
 impl From<Broadcast> for EventPayload {
     fn from(broadcast: Broadcast) -> Self {
@@ -93,7 +93,7 @@ impl From<Push> for EventPayload {
 ///
 pub struct Channel {
     topic: Topic,
-    payload: Arc<Payload>,
+    payload: Payload,
     /// The channel status
     status: Arc<AtomicU32>,
     event_payload_tx: broadcast::Sender<EventPayload>,
@@ -115,7 +115,7 @@ impl Channel {
         state: listener::State,
     ) -> Self {
         let topic: Topic = topic.into();
-        let payload = Arc::new(payload.unwrap_or_default());
+        let payload = payload.unwrap_or_default();
         let status = Arc::new(AtomicU32::new(state.status() as u32));
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let (event_payload_tx, _) = broadcast::channel(10);
@@ -166,7 +166,7 @@ impl Channel {
     }
 
     /// Returns the payload sent to the channel when joined
-    pub fn payload(&self) -> Arc<Payload> {
+    pub fn payload(&self) -> Payload {
         self.payload.clone()
     }
 
@@ -198,7 +198,7 @@ impl Channel {
         T: Into<Payload>,
     {
         let event = event.into();
-        let payload = Arc::new(payload.into());
+        let payload = payload.into();
 
         debug!(
             "sending event {:?} with payload {:#?}, replies ignored",
@@ -228,7 +228,7 @@ impl Channel {
         T: Into<Payload>,
     {
         let event = event.into();
-        let payload = Arc::new(payload.into());
+        let payload = payload.into();
 
         debug!(
             "sending event {:?} with timeout {:?} and payload {:#?}",
@@ -294,7 +294,7 @@ pub enum JoinError {
     #[error("waiting to rejoin")]
     WaitingToRejoin(Instant),
     #[error("server rejected join")]
-    Rejected(Arc<Payload>),
+    Rejected(Payload),
 }
 impl From<oneshot::error::RecvError> for JoinError {
     fn from(_: oneshot::error::RecvError) -> Self {

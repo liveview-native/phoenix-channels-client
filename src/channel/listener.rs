@@ -25,7 +25,7 @@ pub(super) struct Listener {
     socket: Arc<Socket>,
     socket_connectivity_rx: broadcast::Receiver<Connectivity>,
     topic: Topic,
-    payload: Arc<Payload>,
+    payload: Payload,
     channel_status: Arc<AtomicU32>,
     shutdown_rx: oneshot::Receiver<()>,
     event_payload_tx: broadcast::Sender<EventPayload>,
@@ -39,7 +39,7 @@ impl Listener {
         socket: Arc<Socket>,
         socket_connectivity_rx: broadcast::Receiver<Connectivity>,
         topic: Topic,
-        payload: Arc<Payload>,
+        payload: Payload,
         state: State,
         channel_status: Arc<AtomicU32>,
         shutdown_rx: oneshot::Receiver<()>,
@@ -67,7 +67,7 @@ impl Listener {
         socket: Arc<Socket>,
         socket_connectivity_rx: broadcast::Receiver<Connectivity>,
         topic: Topic,
-        payload: Arc<Payload>,
+        payload: Payload,
         state: State,
         channel_status: Arc<AtomicU32>,
         shutdown_rx: oneshot::Receiver<()>,
@@ -534,7 +534,7 @@ pub enum LeaveError {
     #[error("web socket error {0}")]
     WebSocketError(Arc<tungstenite::Error>),
     #[error("server rejected leave")]
-    Rejected(Arc<Payload>),
+    Rejected(Payload),
     #[error("A join was initiated before the server could respond if leave was successful")]
     JoinBeforeLeft,
     #[error("URL error: {0}")]
