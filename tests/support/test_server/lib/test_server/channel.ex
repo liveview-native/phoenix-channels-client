@@ -14,19 +14,13 @@ defmodule TestServer.Channel do
     {:ok, assign(socket, :payload, payload)}
   end
 
-  def handle_in("transport_error", _payload, socket) do
-    Process.exit(socket.transport_pid, :kill)
-
-    {:noreply, socket}
-  end
-
   def handle_in("raise", payload, _socket) do
     raise payload
   end
 
   def handle_in("send_all" = event, payload, %Socket{topic: topic} = socket) do
     TestServer.Endpoint.broadcast!(topic, event, payload)
-    {:noreply, socket}
+    {:reply, :ok, socket}
   end
 
   def handle_in("send_join_payload", _payload, %Socket{assigns: %{payload: payload}} = socket) do
@@ -45,7 +39,15 @@ defmodule TestServer.Channel do
     {:reply, :error, socket}
   end
 
-  def handle_in(_event, _payload, socket) do
+  def handle_in("socket_disconnect", _payload, %Phoenix.Socket{id: id} = socket) do
+    TestServer.Endpoint.broadcast!(id, "disconnect", %{})
+
+    {:noreply, socket}
+  end
+
+  def handle_in("transport_error", _payload, socket) do
+    Process.exit(socket.transport_pid, :kill)
+
     {:noreply, socket}
   end
 end

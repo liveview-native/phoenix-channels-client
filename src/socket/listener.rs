@@ -212,12 +212,6 @@ impl Listener {
         next_state
     }
 
-    fn server_disconnected_connected(&self, mut connected: Connected) -> State {
-        self.send_disconnected(&mut connected, Disconnected::ServerDisconnected);
-
-        State::Disconnected
-    }
-
     fn disconnect_connected(&self, mut connected: Connected) -> State {
         self.send_disconnected(&mut connected, Disconnected::Disconnect);
 
@@ -316,11 +310,22 @@ impl Listener {
 
                 State::Connected(connected)
             }
-            tungstenite::Message::Close(frame) => {
-                debug!("client received close from server, closing socket");
-                connected.socket.close(frame).await.ok();
+            tungstenite::Message::Close(close_frame) => {
+                let infix = match &close_frame {
+                    Some(close_frame) => {
+                        format!(" ({})", close_frame)
+                    }
+                    None => "".to_string(),
+                };
 
-                self.server_disconnected_connected(connected)
+                debug!(
+                    "Client received close{} from server. Waiting to reconnect.",
+                    infix
+                );
+
+                connected.socket.close(close_frame).await.ok();
+
+                self.wait_to_reconnect_connected(connected)
             }
             msg @ tungstenite::Message::Binary(_) | msg @ tungstenite::Message::Text(_) => {
                 match Message::decode(msg) {
@@ -1047,8 +1052,6 @@ pub(crate) enum Connectivity {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Disconnected {
-    /// The server told us to disconnect
-    ServerDisconnected,
     /// [Socket::disconnect]
     Disconnect,
     /// [Socket::shutdown]

@@ -618,18 +618,16 @@ impl State {
                     Some(rejoin) => rejoin.wait(),
                 },
                 Connectivity::Disconnected(disconnected) => match disconnected {
-                    Disconnected::ServerDisconnected
-                    | Disconnected::Disconnect
-                    | Disconnected::Reconnect => self,
+                    Disconnected::Disconnect | Disconnected::Reconnect => self,
                     Disconnected::Shutdown => State::ShuttingDown,
                 },
             },
             State::WaitingToJoin | State::Left => match connectivity {
                 Connectivity::Connected => self,
                 Connectivity::Disconnected(disconnected) => match disconnected {
-                    Disconnected::ServerDisconnected
-                    | Disconnected::Disconnect
-                    | Disconnected::Reconnect => State::WaitingForSocketToConnect { rejoin: None },
+                    Disconnected::Disconnect | Disconnected::Reconnect => {
+                        State::WaitingForSocketToConnect { rejoin: None }
+                    }
                     Disconnected::Shutdown => State::ShuttingDown,
                 },
             },
@@ -648,8 +646,7 @@ impl State {
                         rejoin: Some(rejoin),
                     }
                 }
-                Connectivity::Disconnected(Disconnected::ServerDisconnected)
-                | Connectivity::Disconnected(Disconnected::Disconnect) => {
+                Connectivity::Disconnected(Disconnected::Disconnect) => {
                     State::WaitingForSocketToConnect { rejoin: None }
                 }
                 Connectivity::Disconnected(Disconnected::Shutdown) => State::ShuttingDown,
@@ -657,9 +654,7 @@ impl State {
             State::WaitingToRejoin { sleep, rejoin } => match connectivity {
                 Connectivity::Connected => State::WaitingToRejoin { sleep, rejoin },
                 Connectivity::Disconnected(disconnected) => match disconnected {
-                    Disconnected::ServerDisconnected | Disconnected::Disconnect => {
-                        State::WaitingForSocketToConnect { rejoin: None }
-                    }
+                    Disconnected::Disconnect => State::WaitingForSocketToConnect { rejoin: None },
                     Disconnected::Shutdown => State::ShuttingDown,
                     Disconnected::Reconnect => State::WaitingForSocketToConnect {
                         rejoin: Some(rejoin),
@@ -672,8 +667,7 @@ impl State {
                         rejoin: Some(joined.rejoin()),
                     }
                 }
-                Connectivity::Disconnected(Disconnected::ServerDisconnected)
-                | Connectivity::Disconnected(Disconnected::Disconnect) => {
+                Connectivity::Disconnected(Disconnected::Disconnect) => {
                     State::WaitingForSocketToConnect { rejoin: None }
                 }
                 Connectivity::Disconnected(Disconnected::Shutdown) => State::ShuttingDown,
@@ -687,9 +681,7 @@ impl State {
                     State::Left
                 }
                 Connectivity::Disconnected(disconnected) => match disconnected {
-                    Disconnected::ServerDisconnected | Disconnected::Disconnect => {
-                        State::WaitingForSocketToConnect { rejoin: None }
-                    }
+                    Disconnected::Disconnect => State::WaitingForSocketToConnect { rejoin: None },
                     Disconnected::Shutdown => State::ShuttingDown,
                     Disconnected::Reconnect => {
                         Self::send_to_channel_txs(channel_left_txs, Ok(()));

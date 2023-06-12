@@ -5,12 +5,10 @@ defmodule TestServer.Socket do
   # List of exposed channels
   channel("channel:*", TestServer.Channel)
 
-  def connect(params, socket, _connect_info) do
-    case params["shared_secret"] do
-      "supersecret" -> {:ok, socket}
-      _ -> :error
-    end
+  def connect(%{"shared_secret" => "supersecret", "id" => id}, socket, _connect_info) do
+    {:ok, assign(socket, :id, id)}
   end
+  def connect(_, _, _), do: :error
 
-  def id(_socket), do: ""
+  def id(%Phoenix.Socket{assigns: %{id: id}}), do: "sockets:#{id}"
 end
