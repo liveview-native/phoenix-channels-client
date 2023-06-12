@@ -285,8 +285,6 @@ pub enum JoinError {
     ShuttingDown,
     #[error("channel already shutdown")]
     Shutdown,
-    #[error("server disconnected the socket")]
-    ServerDisconnected,
     #[error("socket was disconnect while channel was being joined")]
     SocketDisconnected,
     #[error("leaving channel while still waiting to see if join succeeded")]
