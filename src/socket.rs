@@ -1,6 +1,7 @@
 pub(crate) mod listener;
 
 use std::panic;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -59,6 +60,7 @@ pub enum SocketError {
 /// related to channels is exposed there.
 pub struct Socket {
     url: Arc<Url>,
+    status: Arc<AtomicU32>,
     state_command_tx: mpsc::Sender<StateCommand>,
     channel_spawn_tx: mpsc::Sender<ChannelSpawn>,
     channel_state_command_tx: mpsc::Sender<ChannelStateCommand>,
@@ -83,12 +85,14 @@ impl Socket {
         }
 
         let url = Arc::new(url);
+        let status = Arc::new(AtomicU32::new(Status::default() as u32));
         let (channel_spawn_tx, channel_spawn_rx) = mpsc::channel(50);
         let (state_command_tx, state_command_rx) = mpsc::channel(50);
         let (channel_state_command_tx, channel_state_command_rx) = mpsc::channel(50);
         let (channel_send_command_tx, channel_send_command_rx) = mpsc::channel(50);
         let join_handle = Listener::spawn(
             url.clone(),
+            status.clone(),
             channel_spawn_rx,
             state_command_rx,
             channel_state_command_rx,
@@ -97,6 +101,7 @@ impl Socket {
 
         Ok(Arc::new(Self {
             url,
+            status,
             channel_spawn_tx,
             state_command_tx,
             channel_state_command_tx,
@@ -107,6 +112,34 @@ impl Socket {
 
     pub fn url(&self) -> Arc<Url> {
         self.url.clone()
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.status() == Status::Connected
+    }
+
+    pub fn is_waiting_to_reconnect(&self) -> bool {
+        self.status() == Status::WaitingToReconnect
+    }
+
+    pub fn has_never_connected(&self) -> bool {
+        self.status() == Status::NeverConnected
+    }
+
+    pub fn is_disconnected(&self) -> bool {
+        self.status() == Status::Disconnected
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.status() == Status::ShuttingDown
+    }
+
+    pub fn is_shutdown(&self) -> bool {
+        self.status() == Status::ShutDown
+    }
+
+    pub fn status(&self) -> Status {
+        unsafe { core::mem::transmute::<u32, Status>(self.status.load(Ordering::SeqCst)) }
     }
 
     /// Connects this client to the configured Phoenix Channels endpoint
@@ -149,11 +182,10 @@ impl Socket {
     }
 
     /// Propagates panic from [Listener::listen]
-    pub async fn shutdown(self) -> Result<(), ShutdownError> {
+    pub async fn shutdown(&self) -> Result<(), ShutdownError> {
         self.state_command_tx
             .send(StateCommand::Shutdown)
             .await
-            // if already shut down that's OK
             .ok();
 
         self.listener_shutdown().await
@@ -381,4 +413,17 @@ impl From<mpsc::error::SendError<StateCommand>> for DisconnectError {
     fn from(_: mpsc::error::SendError<StateCommand>) -> Self {
         DisconnectError::SocketShutdown
     }
+}
+
+#[doc(hidden)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Status {
+    #[default]
+    NeverConnected,
+    Connected,
+    WaitingToReconnect,
+    Disconnected,
+    ShuttingDown,
+    ShutDown,
 }

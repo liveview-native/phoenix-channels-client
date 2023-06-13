@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use phoenix_channels_client::{
-    CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
+    socket, CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
 };
 use serde_json::json;
 use tokio::time;
@@ -31,6 +31,33 @@ macro_rules! assert_matches {
             ),
         }
     };
+}
+
+#[tokio::test]
+async fn phoenix_channels_socket_status_test() {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let url = url();
+    let socket = Socket::spawn(url).await.unwrap();
+
+    assert_eq!(socket.status(), socket::Status::NeverConnected);
+    assert_eq!(socket.has_never_connected(), true);
+
+    socket.connect(CONNECT_TIMEOUT).await.unwrap();
+    assert_eq!(socket.status(), socket::Status::Connected);
+    assert_eq!(socket.is_connected(), true);
+
+    socket.disconnect().await.unwrap();
+    assert_eq!(socket.status(), socket::Status::Disconnected);
+    assert_eq!(socket.is_disconnected(), true);
+
+    socket.shutdown().await.unwrap();
+    assert_eq!(socket.status(), socket::Status::ShutDown);
+    assert_eq!(socket.is_shutdown(), true);
 }
 
 #[tokio::test]
