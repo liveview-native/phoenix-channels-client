@@ -17,6 +17,7 @@ use std::io::ErrorKind;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Error;
 use url::Url;
+use uuid::Uuid;
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! assert_matches {
@@ -33,7 +34,16 @@ macro_rules! assert_matches {
 }
 
 #[tokio::test]
+async fn phoenix_channels_socket_disconnect_reconnect_test() {
+    phoenix_channels_reconnect_test("socket_disconnect").await;
+}
+
+#[tokio::test]
 async fn phoenix_channels_transport_error_reconnect_test() {
+    phoenix_channels_reconnect_test("transport_error").await;
+}
+
+async fn phoenix_channels_reconnect_test(event: &str) {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -44,13 +54,13 @@ async fn phoenix_channels_transport_error_reconnect_test() {
     let socket = connected_socket(url).await;
 
     let channel = socket
-        .channel("channel:transport_error", None)
+        .channel(format!("channel:{}", event), None)
         .await
         .unwrap();
     channel.join(JOIN_TIMEOUT).await.unwrap();
 
     let call_error = channel
-        .call("transport_error", json!({}), CALL_TIMEOUT)
+        .call(event, json!({}), CALL_TIMEOUT)
         .await
         .unwrap_err();
 
@@ -325,7 +335,15 @@ async fn connected_socket(url: Url) -> Arc<Socket> {
 fn url() -> Url {
     Url::parse_with_params(
         format!("ws://{HOST}:9002/socket/websocket").as_str(),
-        &[("shared_secret", "supersecret")],
+        &[
+            ("shared_secret", "supersecret"),
+            (
+                "id",
+                Uuid::new_v4()
+                    .hyphenated()
+                    .encode_upper(&mut Uuid::encode_buffer()),
+            ),
+        ],
     )
     .unwrap()
 }

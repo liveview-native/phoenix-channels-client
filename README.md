@@ -58,7 +58,7 @@ async fn main() {
     // URL with params for authentication
     let url = Url::parse_with_params(
         "ws://127.0.0.1:9002/socket/websocket",
-        &[("shared_secret", "supersecret")],
+        &[("shared_secret", "supersecret"), ("id", "user-id")],
     ).unwrap();
 
     // Create a socket
