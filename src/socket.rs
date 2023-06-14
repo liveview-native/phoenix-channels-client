@@ -142,7 +142,7 @@ impl Socket {
         self.status.get()
     }
 
-    pub fn statuses(&self) -> broadcast::Receiver<Status> {
+    pub fn statuses(&self) -> broadcast::Receiver<Result<Status, Arc<tungstenite::Error>>> {
         self.status.subscribe()
     }
 
@@ -324,7 +324,7 @@ pub enum ConnectError {
     #[error("timeout connecting to server")]
     Timeout,
     #[error("websocket error: {0}")]
-    WebSocketError(#[from] tungstenite::Error),
+    WebSocketError(#[from] Arc<tungstenite::Error>),
     #[error("socket shutting down")]
     SocketShuttingDown,
     #[error("socket already shutdown")]
@@ -422,7 +422,7 @@ impl From<mpsc::error::SendError<StateCommand>> for DisconnectError {
 #[derive(Clone)]
 struct ObservableStatus {
     status: Arc<AtomicUsize>,
-    tx: broadcast::Sender<Status>,
+    tx: broadcast::Sender<Result<Status, Arc<tungstenite::Error>>>,
 }
 impl ObservableStatus {
     fn new() -> Self {
@@ -442,11 +442,15 @@ impl ObservableStatus {
         let status_usize = status as usize;
 
         if self.status.swap(status_usize, Ordering::AcqRel) != status_usize {
-            self.tx.send(status).ok();
+            self.tx.send(Ok(status)).ok();
         }
     }
 
-    fn subscribe(&self) -> broadcast::Receiver<Status> {
+    fn error(&self, error: Arc<tungstenite::Error>) {
+        self.tx.send(Err(error)).ok();
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<Result<Status, Arc<tungstenite::Error>>> {
         self.tx.subscribe()
     }
 }

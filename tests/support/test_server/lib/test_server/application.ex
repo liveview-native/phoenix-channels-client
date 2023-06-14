@@ -10,6 +10,7 @@ defmodule TestServer.Application do
     children = [
       {Phoenix.PubSub, [adapter: Phoenix.PubSub.PG2, name: TestServer.PubSub]},
       TestServer.Endpoint,
+      TestServer.Secret
       # Starts a worker by calling: TestServer.Worker.start_link(arg)
       # {TestServer.Worker, arg}
     ]

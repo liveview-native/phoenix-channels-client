@@ -3,6 +3,8 @@ defmodule TestServer.Channel do
 
   use Phoenix.Channel
 
+  require Logger
+
   alias Phoenix.Socket
 
   def join("channel:error:" <> _, payload, _socket) do
@@ -12,6 +14,21 @@ defmodule TestServer.Channel do
   def join(topic, payload, socket) do
     IO.inspect("#{topic} was joined with #{inspect(payload)}")
     {:ok, assign(socket, :payload, payload)}
+  end
+
+  def handle_in("generate_secret", _, %Phoenix.Socket{assigns: %{id: id}} = socket) do
+    {:reply, {:ok, TestServer.Secret.generate(id)}, socket}
+  end
+
+  def handle_in("delete_secret", _, %Phoenix.Socket{assigns: %{id: id, secret: secret}} = socket) do
+    case TestServer.Secret.delete(id, secret) do
+      :ok ->
+        Logger.info("secret #{secret} deleted for id #{id}")
+        {:reply, :ok, socket}
+      :error ->
+        Logger.info("secret #{secret} does not match for id #{id}")
+        {:reply, :error, socket}
+    end
   end
 
   def handle_in("raise", payload, _socket) do

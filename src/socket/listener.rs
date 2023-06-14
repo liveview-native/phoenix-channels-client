@@ -691,9 +691,11 @@ impl Listener {
                     }))
                 }
                 Err(error) => {
-                    debug!("Error connecting to {}: {}", self.url, error);
+                    let arc_error = Arc::new(error);
+                    debug!("Error connecting to {}: {}", self.url, arc_error);
+                    self.socket_status.error(arc_error.clone());
 
-                    Err((error.into(), reconnect))
+                    Err((arc_error.into(), reconnect))
                 }
             },
             Err(_) => Err((ConnectError::Timeout, reconnect)),
