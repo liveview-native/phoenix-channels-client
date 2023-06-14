@@ -14,7 +14,7 @@ use log::debug;
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
 use std::io::ErrorKind;
-use tokio::time::Instant;
+use tokio::time::{timeout, Instant};
 use tokio_tungstenite::tungstenite::Error;
 use url::Url;
 use uuid::Uuid;
@@ -58,6 +58,78 @@ async fn phoenix_channels_socket_status_test() {
     socket.shutdown().await.unwrap();
     assert_eq!(socket.status(), socket::Status::ShutDown);
     assert_eq!(socket.is_shutdown(), true);
+}
+
+#[tokio::test]
+async fn phoenix_channels_socket_event_test() {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let url = url();
+    let socket = Socket::spawn(url).await.unwrap();
+
+    let mut statuses = socket.statuses();
+
+    socket.connect(CONNECT_TIMEOUT).await.unwrap();
+    assert_matches!(
+        timeout(CONNECT_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        socket::Status::Connected
+    );
+
+    let channel = socket.channel("channel:disconnect", None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+    assert_matches!(
+        channel
+            .call("socket_disconnect", json!({}), CALL_TIMEOUT)
+            .await
+            .unwrap_err(),
+        CallError::SocketDisconnected
+    );
+    assert_matches!(
+        timeout(CALL_TIMEOUT + JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        socket::Status::WaitingToReconnect
+    );
+    assert_matches!(
+        timeout(CONNECT_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        socket::Status::Connected
+    );
+
+    socket.disconnect().await.unwrap();
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        socket::Status::Disconnected
+    );
+
+    socket.shutdown().await.unwrap();
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        socket::Status::ShuttingDown
+    );
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        socket::Status::ShutDown
+    );
 }
 
 #[tokio::test]

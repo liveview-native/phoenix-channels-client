@@ -1,15 +1,15 @@
 pub(crate) mod listener;
 
 use std::panic;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use atomic_take::AtomicTake;
 use flexstr::SharedStr;
 use log::error;
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::error::Elapsed;
@@ -60,7 +60,7 @@ pub enum SocketError {
 /// related to channels is exposed there.
 pub struct Socket {
     url: Arc<Url>,
-    status: Arc<AtomicU32>,
+    status: ObservableStatus,
     state_command_tx: mpsc::Sender<StateCommand>,
     channel_spawn_tx: mpsc::Sender<ChannelSpawn>,
     channel_state_command_tx: mpsc::Sender<ChannelStateCommand>,
@@ -85,7 +85,7 @@ impl Socket {
         }
 
         let url = Arc::new(url);
-        let status = Arc::new(AtomicU32::new(Status::default() as u32));
+        let status = ObservableStatus::new();
         let (channel_spawn_tx, channel_spawn_rx) = mpsc::channel(50);
         let (state_command_tx, state_command_rx) = mpsc::channel(50);
         let (channel_state_command_tx, channel_state_command_rx) = mpsc::channel(50);
@@ -139,7 +139,11 @@ impl Socket {
     }
 
     pub fn status(&self) -> Status {
-        unsafe { core::mem::transmute::<u32, Status>(self.status.load(Ordering::SeqCst)) }
+        self.status.get()
+    }
+
+    pub fn statuses(&self) -> broadcast::Receiver<Status> {
+        self.status.subscribe()
     }
 
     /// Connects this client to the configured Phoenix Channels endpoint
@@ -415,9 +419,41 @@ impl From<mpsc::error::SendError<StateCommand>> for DisconnectError {
     }
 }
 
+#[derive(Clone)]
+struct ObservableStatus {
+    status: Arc<AtomicUsize>,
+    tx: broadcast::Sender<Status>,
+}
+impl ObservableStatus {
+    fn new() -> Self {
+        let (tx, _) = broadcast::channel(5);
+
+        ObservableStatus {
+            status: Arc::new(AtomicUsize::new(Status::default() as usize)),
+            tx,
+        }
+    }
+
+    fn get(&self) -> Status {
+        unsafe { core::mem::transmute::<usize, Status>(self.status.load(Ordering::Acquire)) }
+    }
+
+    fn set(&self, status: Status) {
+        let status_usize = status as usize;
+
+        if self.status.swap(status_usize, Ordering::AcqRel) != status_usize {
+            self.tx.send(status).ok();
+        }
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<Status> {
+        self.tx.subscribe()
+    }
+}
+
 #[doc(hidden)]
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
-#[repr(u32)]
+#[repr(usize)]
 pub enum Status {
     #[default]
     NeverConnected,

@@ -1,6 +1,6 @@
 [package]
 name = "phoenix_channels_client"
-version = "0.2.0"
+version = "0.3.0"
 rust-version = "1.64"
 authors = ["Paul Schoenfelder <paulschoenfelder@gmail.com>", "Elle Imhoff <Kronic.Deth@gmail.com>"]
 description = "Provides an async-ready client for Phoenix Channels in Rust"

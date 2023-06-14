@@ -5,7 +5,6 @@ use std::future::Future;
 use std::hash::Hash;
 use std::mem;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,7 +29,7 @@ use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
 use crate::reference::Reference;
-use crate::socket::{ConnectError, Status};
+use crate::socket::{ConnectError, ObservableStatus, Status};
 use crate::topic::Topic;
 use crate::{channel, socket, Channel, EventPayload, Socket};
 use crate::{Event, Payload, PhoenixEvent};
@@ -43,12 +42,12 @@ pub(super) struct Listener {
     channel_send_command_rx: mpsc::Receiver<ChannelSendCommand>,
     connectivity_tx: broadcast::Sender<Connectivity>,
     state: Option<State>,
-    socket_status: Arc<AtomicU32>,
+    socket_status: ObservableStatus,
 }
 impl Listener {
     pub(super) fn spawn(
         url: Arc<Url>,
-        socket_status: Arc<AtomicU32>,
+        socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
@@ -68,7 +67,7 @@ impl Listener {
 
     fn init(
         url: Arc<Url>,
-        socket_status: Arc<AtomicU32>,
+        socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
@@ -127,8 +126,7 @@ impl Listener {
                 State::ShuttingDown => break Ok(()),
             };
 
-            self.socket_status
-                .store(next_state.status() as u32, Ordering::SeqCst);
+            self.socket_status.set(next_state.status());
 
             let next_discriminant = mem::discriminant(&next_state);
 
@@ -139,8 +137,7 @@ impl Listener {
             self.state = Some(next_state);
         };
 
-        self.socket_status
-            .store(Status::ShutDown as u32, Ordering::SeqCst);
+        self.socket_status.set(Status::ShutDown);
 
         result
     }
