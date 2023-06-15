@@ -1,14 +1,15 @@
 pub(crate) mod listener;
 
 use std::panic;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use atomic_take::AtomicTake;
 use flexstr::SharedStr;
 use log::error;
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::error::Elapsed;
@@ -59,6 +60,7 @@ pub enum SocketError {
 /// related to channels is exposed there.
 pub struct Socket {
     url: Arc<Url>,
+    status: ObservableStatus,
     state_command_tx: mpsc::Sender<StateCommand>,
     channel_spawn_tx: mpsc::Sender<ChannelSpawn>,
     channel_state_command_tx: mpsc::Sender<ChannelStateCommand>,
@@ -83,12 +85,14 @@ impl Socket {
         }
 
         let url = Arc::new(url);
+        let status = ObservableStatus::new();
         let (channel_spawn_tx, channel_spawn_rx) = mpsc::channel(50);
         let (state_command_tx, state_command_rx) = mpsc::channel(50);
         let (channel_state_command_tx, channel_state_command_rx) = mpsc::channel(50);
         let (channel_send_command_tx, channel_send_command_rx) = mpsc::channel(50);
         let join_handle = Listener::spawn(
             url.clone(),
+            status.clone(),
             channel_spawn_rx,
             state_command_rx,
             channel_state_command_rx,
@@ -97,6 +101,7 @@ impl Socket {
 
         Ok(Arc::new(Self {
             url,
+            status,
             channel_spawn_tx,
             state_command_tx,
             channel_state_command_tx,
@@ -107,6 +112,38 @@ impl Socket {
 
     pub fn url(&self) -> Arc<Url> {
         self.url.clone()
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.status() == Status::Connected
+    }
+
+    pub fn is_waiting_to_reconnect(&self) -> bool {
+        self.status() == Status::WaitingToReconnect
+    }
+
+    pub fn has_never_connected(&self) -> bool {
+        self.status() == Status::NeverConnected
+    }
+
+    pub fn is_disconnected(&self) -> bool {
+        self.status() == Status::Disconnected
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.status() == Status::ShuttingDown
+    }
+
+    pub fn is_shutdown(&self) -> bool {
+        self.status() == Status::ShutDown
+    }
+
+    pub fn status(&self) -> Status {
+        self.status.get()
+    }
+
+    pub fn statuses(&self) -> broadcast::Receiver<Result<Status, Arc<tungstenite::Error>>> {
+        self.status.subscribe()
     }
 
     /// Connects this client to the configured Phoenix Channels endpoint
@@ -149,11 +186,10 @@ impl Socket {
     }
 
     /// Propagates panic from [Listener::listen]
-    pub async fn shutdown(self) -> Result<(), ShutdownError> {
+    pub async fn shutdown(&self) -> Result<(), ShutdownError> {
         self.state_command_tx
             .send(StateCommand::Shutdown)
             .await
-            // if already shut down that's OK
             .ok();
 
         self.listener_shutdown().await
@@ -288,7 +324,7 @@ pub enum ConnectError {
     #[error("timeout connecting to server")]
     Timeout,
     #[error("websocket error: {0}")]
-    WebSocketError(#[from] tungstenite::Error),
+    WebSocketError(#[from] Arc<tungstenite::Error>),
     #[error("socket shutting down")]
     SocketShuttingDown,
     #[error("socket already shutdown")]
@@ -381,4 +417,53 @@ impl From<mpsc::error::SendError<StateCommand>> for DisconnectError {
     fn from(_: mpsc::error::SendError<StateCommand>) -> Self {
         DisconnectError::SocketShutdown
     }
+}
+
+#[derive(Clone)]
+struct ObservableStatus {
+    status: Arc<AtomicUsize>,
+    tx: broadcast::Sender<Result<Status, Arc<tungstenite::Error>>>,
+}
+impl ObservableStatus {
+    fn new() -> Self {
+        let (tx, _) = broadcast::channel(5);
+
+        ObservableStatus {
+            status: Arc::new(AtomicUsize::new(Status::default() as usize)),
+            tx,
+        }
+    }
+
+    fn get(&self) -> Status {
+        unsafe { core::mem::transmute::<usize, Status>(self.status.load(Ordering::Acquire)) }
+    }
+
+    fn set(&self, status: Status) {
+        let status_usize = status as usize;
+
+        if self.status.swap(status_usize, Ordering::AcqRel) != status_usize {
+            self.tx.send(Ok(status)).ok();
+        }
+    }
+
+    fn error(&self, error: Arc<tungstenite::Error>) {
+        self.tx.send(Err(error)).ok();
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<Result<Status, Arc<tungstenite::Error>>> {
+        self.tx.subscribe()
+    }
+}
+
+#[doc(hidden)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Status {
+    #[default]
+    NeverConnected,
+    Connected,
+    WaitingToReconnect,
+    Disconnected,
+    ShuttingDown,
+    ShutDown,
 }

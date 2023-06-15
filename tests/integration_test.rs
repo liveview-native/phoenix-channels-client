@@ -5,16 +5,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use phoenix_channels_client::{
-    CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
+    socket, CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::time;
 
 use log::debug;
+use phoenix_channels_client::socket::Status;
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
 use std::io::ErrorKind;
-use tokio::time::Instant;
+use tokio::time::{timeout, Instant};
+use tokio_tungstenite::tungstenite;
+use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::Error;
 use url::Url;
 use uuid::Uuid;
@@ -34,6 +37,195 @@ macro_rules! assert_matches {
 }
 
 #[tokio::test]
+async fn phoenix_channels_socket_status_test() {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = Socket::spawn(url).await.unwrap();
+
+    assert_eq!(socket.status(), socket::Status::NeverConnected);
+    assert_eq!(socket.has_never_connected(), true);
+
+    socket.connect(CONNECT_TIMEOUT).await.unwrap();
+    assert_eq!(socket.status(), socket::Status::Connected);
+    assert_eq!(socket.is_connected(), true);
+
+    socket.disconnect().await.unwrap();
+    assert_eq!(socket.status(), socket::Status::Disconnected);
+    assert_eq!(socket.is_disconnected(), true);
+
+    socket.shutdown().await.unwrap();
+    assert_eq!(socket.status(), socket::Status::ShutDown);
+    assert_eq!(socket.is_shutdown(), true);
+}
+
+#[tokio::test]
+async fn phoenix_channels_socket_event_test() {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = Socket::spawn(url).await.unwrap();
+
+    let mut statuses = socket.statuses();
+
+    socket.connect(CONNECT_TIMEOUT).await.unwrap();
+    assert_matches!(
+        timeout(CONNECT_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(socket::Status::Connected)
+    );
+
+    let channel = socket.channel("channel:disconnect", None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+    assert_matches!(
+        channel
+            .call("socket_disconnect", json!({}), CALL_TIMEOUT)
+            .await
+            .unwrap_err(),
+        CallError::SocketDisconnected
+    );
+    assert_matches!(
+        timeout(CALL_TIMEOUT + JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(socket::Status::WaitingToReconnect)
+    );
+    assert_matches!(
+        timeout(CONNECT_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(socket::Status::Connected)
+    );
+
+    socket.disconnect().await.unwrap();
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(socket::Status::Disconnected)
+    );
+
+    socket.shutdown().await.unwrap();
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(socket::Status::ShuttingDown)
+    );
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(socket::Status::ShutDown)
+    );
+}
+
+#[tokio::test]
+async fn phoenix_channels_socket_key_rotation_test() {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let shared_secret_url = shared_secret_url(id.clone());
+    let generate_secret_socket = connected_socket(shared_secret_url).await;
+
+    let generate_secret_channel = generate_secret_socket
+        .channel("channel:generate_secret", None)
+        .await
+        .unwrap();
+    generate_secret_channel.join(JOIN_TIMEOUT).await.unwrap();
+
+    let Payload::Value(value) = generate_secret_channel
+        .call("generate_secret", json!({}), CALL_TIMEOUT)
+        .await
+        .unwrap() else {panic!("secret not returned")};
+
+    let secret = if let Value::String(ref secret) = *value {
+        secret.to_owned()
+    } else {
+        panic!("secret ({:?}) is not a string", value);
+    };
+
+    let secret_url = secret_url(id, secret);
+    let secret_socket = connected_socket(secret_url).await;
+
+    let secret_channel = secret_socket.channel("channel:secret", None).await.unwrap();
+    secret_channel.join(JOIN_TIMEOUT).await.unwrap();
+
+    secret_channel
+        .call("delete_secret", json!({}), CALL_TIMEOUT)
+        .await
+        .unwrap();
+    let payload = json_payload();
+
+    let mut statuses = secret_socket.statuses();
+
+    secret_channel
+        .call("socket_disconnect", json!({}), CALL_TIMEOUT)
+        .await
+        .unwrap_err();
+
+    debug!("Sending to check for reconnect");
+    assert_matches!(
+        secret_channel
+            .call(
+                "send_reply",
+                payload.clone(),
+                CONNECT_TIMEOUT + JOIN_TIMEOUT + CALL_TIMEOUT
+            )
+            .await,
+        Err(CallError::Timeout)
+    );
+
+    let mut reconnect_count = 0;
+
+    loop {
+        tokio::select! {
+            result  = timeout(CALL_TIMEOUT, statuses.recv()) => match result.unwrap().unwrap() {
+                Ok(Status::WaitingToReconnect) => {
+                    reconnect_count += 1;
+
+                    if reconnect_count > 5 {
+                        panic!("Waiting to reconnect {} times without sending error status", reconnect_count);
+                    } else {
+                        continue
+                    }
+                },
+                Err(ref web_socket_error) => match web_socket_error.as_ref() {
+                    tungstenite::Error::Http(response) => {
+                        assert_eq!(response.status(), StatusCode::from_u16(403).unwrap());
+
+                        break
+                    },
+                    web_socket_error => panic!("Unexpected web socket error: {:?}", web_socket_error)
+                }
+                result => panic!("Unexpected status: {:?}", result),
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn phoenix_channels_socket_disconnect_reconnect_test() {
     phoenix_channels_reconnect_test("socket_disconnect").await;
 }
@@ -50,7 +242,8 @@ async fn phoenix_channels_reconnect_test(event: &str) {
         .is_test(true)
         .try_init();
 
-    let url = url();
+    let id = id();
+    let url = shared_secret_url(id);
     let socket = connected_socket(url).await;
 
     let channel = socket
@@ -112,7 +305,8 @@ async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
         .is_test(true)
         .try_init();
 
-    let url = url();
+    let id = id();
+    let url = shared_secret_url(id);
     let socket = connected_socket(url).await;
     let topic = format!("channel:join:payload:{}", subtopic);
 
@@ -144,7 +338,8 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
         .is_test(true)
         .try_init();
 
-    let url = url();
+    let id = id();
+    let url = shared_secret_url(id);
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:error:{}", subtopic);
@@ -175,7 +370,8 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
         .is_test(true)
         .try_init();
 
-    let url = url();
+    let id = id();
+    let url = shared_secret_url(id);
     let receiver_client = connected_socket(url.clone()).await;
 
     let topic = format!("channel:broadcast:{}", subtopic);
@@ -236,7 +432,9 @@ async fn phoenix_channels_call_test(subtopic: &str, payload: Payload) {
         .filter_level(log::LevelFilter::Debug)
         .is_test(true)
         .try_init();
-    let url = url();
+
+    let id = id();
+    let url = shared_secret_url(id);
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:call:{}", subtopic);
@@ -268,7 +466,9 @@ async fn phoenix_channels_call_error_test(subtopic: &str, payload: Payload) {
         .filter_level(log::LevelFilter::Debug)
         .is_test(true)
         .try_init();
-    let url = url();
+
+    let id = id();
+    let url = shared_secret_url(id);
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:raise:{}", subtopic);
@@ -300,7 +500,9 @@ async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) {
         .filter_level(log::LevelFilter::Debug)
         .is_test(true)
         .try_init();
-    let url = url();
+
+    let id = id();
+    let url = shared_secret_url(id);
     let socket = connected_socket(url).await;
 
     let topic = format!("channel:raise:{}", subtopic);
@@ -318,11 +520,15 @@ async fn connected_socket(url: Url) -> Arc<Socket> {
 
     if let Err(connect_error) = socket.connect(CONNECT_TIMEOUT).await {
         match connect_error {
-            ConnectError::WebSocketError(Error::Io(io_error)) => {
-                if io_error.kind() == ErrorKind::ConnectionRefused {
-                    panic!("Phoenix server not started. Run: cd tests/support/test_server && iex -S mix")
+            ConnectError::WebSocketError(ref web_socket_error) => {
+                if let Error::Io(io_error) = web_socket_error.as_ref() {
+                    if io_error.kind() == ErrorKind::ConnectionRefused {
+                        panic!("Phoenix server not started. Run: cd tests/support/test_server && iex -S mix")
+                    } else {
+                        panic!("{:?}", io_error)
+                    }
                 } else {
-                    panic!("{:?}", io_error)
+                    panic!("{:?}", web_socket_error)
                 }
             }
             _ => panic!("{:?}", connect_error),
@@ -332,20 +538,27 @@ async fn connected_socket(url: Url) -> Arc<Socket> {
     socket
 }
 
-fn url() -> Url {
+fn shared_secret_url(id: String) -> Url {
     Url::parse_with_params(
         format!("ws://{HOST}:9002/socket/websocket").as_str(),
-        &[
-            ("shared_secret", "supersecret"),
-            (
-                "id",
-                Uuid::new_v4()
-                    .hyphenated()
-                    .encode_upper(&mut Uuid::encode_buffer()),
-            ),
-        ],
+        &[("shared_secret", "supersecret".to_string()), ("id", id)],
     )
     .unwrap()
+}
+
+fn secret_url(id: String, secret: String) -> Url {
+    Url::parse_with_params(
+        format!("ws://{HOST}:9002/socket/websocket").as_str(),
+        &[("id", id), ("secret", secret)],
+    )
+    .unwrap()
+}
+
+fn id() -> String {
+    Uuid::new_v4()
+        .hyphenated()
+        .encode_upper(&mut Uuid::encode_buffer())
+        .to_string()
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);

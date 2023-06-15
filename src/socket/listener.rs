@@ -29,7 +29,7 @@ use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
 use crate::reference::Reference;
-use crate::socket::ConnectError;
+use crate::socket::{ConnectError, ObservableStatus, Status};
 use crate::topic::Topic;
 use crate::{channel, socket, Channel, EventPayload, Socket};
 use crate::{Event, Payload, PhoenixEvent};
@@ -42,10 +42,12 @@ pub(super) struct Listener {
     channel_send_command_rx: mpsc::Receiver<ChannelSendCommand>,
     connectivity_tx: broadcast::Sender<Connectivity>,
     state: Option<State>,
+    socket_status: ObservableStatus,
 }
 impl Listener {
     pub(super) fn spawn(
         url: Arc<Url>,
+        socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
@@ -53,6 +55,7 @@ impl Listener {
     ) -> JoinHandle<Result<(), ShutdownError>> {
         let listener = Self::init(
             url,
+            socket_status,
             channel_spawn_rx,
             state_command_rx,
             channel_state_command_rx,
@@ -64,6 +67,7 @@ impl Listener {
 
     fn init(
         url: Arc<Url>,
+        socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
@@ -73,6 +77,7 @@ impl Listener {
 
         Self {
             url,
+            socket_status,
             channel_spawn_rx,
             state_command_rx,
             channel_state_command_rx,
@@ -85,7 +90,7 @@ impl Listener {
     async fn listen(mut self) -> Result<(), ShutdownError> {
         debug!("starting client worker");
 
-        loop {
+        let result = loop {
             let mut current_state = self.state.take().unwrap();
             let current_discriminant = mem::discriminant(&current_state);
 
@@ -121,6 +126,8 @@ impl Listener {
                 State::ShuttingDown => break Ok(()),
             };
 
+            self.socket_status.set(next_state.status());
+
             let next_discriminant = mem::discriminant(&next_state);
 
             if next_discriminant != current_discriminant {
@@ -128,7 +135,11 @@ impl Listener {
             }
 
             self.state = Some(next_state);
-        }
+        };
+
+        self.socket_status.set(Status::ShutDown);
+
+        result
     }
 
     async fn spawn_channel(&self, state: State, channel_spawn: ChannelSpawn) -> State {
@@ -680,9 +691,11 @@ impl Listener {
                     }))
                 }
                 Err(error) => {
-                    debug!("Error connecting to {}: {}", self.url, error);
+                    let arc_error = Arc::new(error);
+                    debug!("Error connecting to {}: {}", self.url, arc_error);
+                    self.socket_status.error(arc_error.clone());
 
-                    Err((error.into(), reconnect))
+                    Err((arc_error.into(), reconnect))
                 }
             },
             Err(_) => Err((ConnectError::Timeout, reconnect)),
@@ -713,6 +726,17 @@ enum State {
     },
     Disconnected,
     ShuttingDown,
+}
+impl State {
+    pub fn status(&self) -> Status {
+        match self {
+            State::NeverConnected => Status::NeverConnected,
+            State::Connected(_) => Status::Connected,
+            State::WaitingToReconnect { .. } => Status::WaitingToReconnect,
+            State::Disconnected => Status::Disconnected,
+            State::ShuttingDown => Status::ShuttingDown,
+        }
+    }
 }
 impl Debug for State {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -6,7 +6,7 @@ mod channel;
 mod join_reference;
 mod message;
 mod reference;
-mod socket;
+pub mod socket;
 mod topic;
 
 pub use serde_json::Value;
