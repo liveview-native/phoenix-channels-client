@@ -350,6 +350,8 @@ pub enum CallError {
     WebSocketError(tungstenite::Error),
     #[error("socket disconnected while waiting for reply")]
     SocketDisconnected,
+    #[error("error from server {0:?}")]
+    Reply(Payload),
 }
 impl From<mpsc::error::SendError<SendCommand>> for CallError {
     fn from(_: mpsc::error::SendError<SendCommand>) -> Self {

@@ -35,25 +35,33 @@ defmodule TestServer.Channel do
     raise payload
   end
 
-  def handle_in("send_all" = event, payload, %Socket{topic: topic} = socket) do
+  def handle_in("reply_ok", _payload, socket) do
+    {:reply, :ok, socket}
+  end
+
+  def handle_in("reply_error", _payload, socket) do
+    {:reply, :error, socket}
+  end
+
+  def handle_in("reply_ok_tuple", payload, socket) do
+    {:reply, {:ok, payload}, socket}
+  end
+
+  def handle_in("reply_error_tuple", payload, socket) do
+    {:reply, {:error, payload}, socket}
+  end
+
+  def handle_in("broadcast" = event, payload, %Socket{topic: topic} = socket) do
     TestServer.Endpoint.broadcast!(topic, event, payload)
     {:reply, :ok, socket}
   end
 
-  def handle_in("send_join_payload", _payload, %Socket{assigns: %{payload: payload}} = socket) do
+  def handle_in("reply_ok_join_payload", _payload, %Socket{assigns: %{payload: payload}} = socket) do
     {:reply, {:ok, payload}, socket}
   end
 
-  def handle_in("send_reply", payload, socket) do
-    {:reply, {:ok, payload}, socket}
-  end
-
-  def handle_in("send_noreply", _payload, socket) do
+  def handle_in("noreply", _payload, socket) do
     {:noreply, socket}
-  end
-
-  def handle_in("send_error", _payload, socket) do
-    {:reply, :error, socket}
   end
 
   def handle_in("socket_disconnect", _payload, %Phoenix.Socket{id: id} = socket) do

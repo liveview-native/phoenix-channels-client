@@ -94,10 +94,10 @@ async fn main() {
     channel.join(Duration::from_secs(15)).await.unwrap();
     
     // Send a message, waiting for a reply until timeout
-    let reply_payload = channel.call("send_reply", json!({ "name": "foo", "message": "hi"}), Duration::from_secs(5)).await.unwrap();
+    let reply_payload = channel.call("reply_ok_tuple", json!({ "name": "foo", "message": "hi"}), Duration::from_secs(5)).await.unwrap();
 
     // Send a message, not waiting for a reply
-    channel.cast("send_noreply", json!({ "name": "foo", "message": "jeez"})).await.unwrap();
+    channel.cast("noreply", json!({ "name": "foo", "message": "jeez"})).await.unwrap();
 
     // Leave the channel
     channel.leave().await.unwrap();

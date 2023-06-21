@@ -266,7 +266,7 @@ async fn phoenix_channels_reconnect_test(event: &str) {
 
     match channel
         .call(
-            "send_reply",
+            "reply_ok_tuple",
             payload.clone(),
             CONNECT_TIMEOUT + JOIN_TIMEOUT + CALL_TIMEOUT,
         )
@@ -284,6 +284,7 @@ async fn phoenix_channels_reconnect_test(event: &str) {
                 panic!("web socket error {:?}", web_socket_error)
             }
             CallError::SocketDisconnected => panic!("socket disconnected"),
+            CallError::Reply(payload) => panic!("Error from server: {:?}", payload),
         },
     }
 }
@@ -315,7 +316,7 @@ async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
     channel.join(JOIN_TIMEOUT).await.unwrap();
 
     let received_payload = channel
-        .call("send_join_payload", json!({}), CALL_TIMEOUT)
+        .call("reply_ok_join_payload", json!({}), CALL_TIMEOUT)
         .await
         .unwrap();
     assert_eq!(received_payload, payload);
@@ -379,7 +380,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
     receiver_channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(receiver_channel.is_joined());
 
-    const EVENT: &'static str = "send_all";
+    const EVENT: &'static str = "broadcast";
     let sent_payload = payload;
     let expected_received_payload = sent_payload.clone();
     let on_notify = Arc::new(tokio::sync::Notify::new());
@@ -417,16 +418,16 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_json_test() {
-    phoenix_channels_call_test("json", json_payload()).await;
+async fn phoenix_channels_call_with_json_payload_reply_ok_without_payload_test() {
+    phoenix_channels_call_reply_ok_without_payload_test("json", json_payload()).await;
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_binary_test() {
-    phoenix_channels_call_test("binary", binary_payload()).await;
+async fn phoenix_channels_call_with_binary_payload_reply_ok_without_payload_test() {
+    phoenix_channels_call_reply_ok_without_payload_test("binary", binary_payload()).await;
 }
 
-async fn phoenix_channels_call_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_call_reply_ok_without_payload_test(subtopic: &str, payload: Payload) {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -442,25 +443,138 @@ async fn phoenix_channels_call_test(subtopic: &str, payload: Payload) {
     channel.join(JOIN_TIMEOUT).await.unwrap();
     assert!(channel.is_joined());
 
-    let reply = channel
-        .call("send_reply", payload.clone(), CALL_TIMEOUT)
+    assert_eq!(
+        channel
+            .call("reply_ok", payload.clone(), CALL_TIMEOUT)
+            .await
+            .unwrap(),
+        json!({}).into()
+    );
+}
+
+#[tokio::test]
+async fn phoenix_channels_call_with_json_payload_reply_error_without_payload_test() {
+    phoenix_channels_call_reply_error_without_payload_test("json", json_payload()).await;
+}
+
+#[tokio::test]
+async fn phoenix_channels_call_with_binary_payload_reply_error_without_payload_test() {
+    phoenix_channels_call_reply_error_without_payload_test("binary", binary_payload()).await;
+}
+
+async fn phoenix_channels_call_reply_error_without_payload_test(subtopic: &str, payload: Payload) {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = connected_socket(url).await;
+
+    let topic = format!("channel:call:{}", subtopic);
+    let channel = socket.channel(&topic, None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+    assert!(channel.is_joined());
+
+    match channel.call("reply_error", payload, CALL_TIMEOUT).await {
+        Err(CallError::Reply(payload)) => assert_eq!(payload, json!({}).into()),
+        result => panic!("Received result {:?} when calling reply_error", result),
+    }
+}
+
+#[tokio::test]
+async fn phoenix_channels_call_reply_ok_with_json_payload_test() {
+    phoenix_channels_call_reply_ok_with_payload_test("json", json_payload()).await;
+}
+
+#[tokio::test]
+async fn phoenix_channels_call_reply_ok_with_binary_payload_test() {
+    phoenix_channels_call_reply_ok_with_payload_test("binary", binary_payload()).await;
+}
+
+async fn phoenix_channels_call_reply_ok_with_payload_test(subtopic: &str, payload: Payload) {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = connected_socket(url).await;
+
+    let topic = format!("channel:call:{}", subtopic);
+    let channel = socket.channel(&topic, None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+    assert!(channel.is_joined());
+
+    match channel
+        .call("reply_ok_tuple", payload.clone(), CALL_TIMEOUT)
         .await
-        .unwrap();
-
-    assert_eq!(reply, payload);
+    {
+        Ok(reply_payload) => assert_eq!(reply_payload, payload),
+        Err(call_error) => panic!(
+            "CallError {:?} when calling reply_ok_tuple with payload {:?}",
+            call_error, payload
+        ),
+    }
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_error_json_test() {
-    phoenix_channels_call_error_test("json", json_payload()).await;
+async fn phoenix_channels_call_with_json_payload_reply_error_with_json_payload_test() {
+    phoenix_channels_call_with_payload_reply_error_with_payload_test("json", json_payload()).await;
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_error_binary_test() {
-    phoenix_channels_call_error_test("binary", binary_payload()).await;
+async fn phoenix_channels_call_with_binary_payload_reply_error_with_binary_payload_test() {
+    phoenix_channels_call_with_payload_reply_error_with_payload_test("binary", binary_payload())
+        .await;
 }
 
-async fn phoenix_channels_call_error_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
+    subtopic: &str,
+    payload: Payload,
+) {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = connected_socket(url).await;
+
+    let topic = format!("channel:call:{}", subtopic);
+    let channel = socket.channel(&topic, None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+    assert!(channel.is_joined());
+
+    match channel
+        .call("reply_error_tuple", payload.clone(), CALL_TIMEOUT)
+        .await
+    {
+        Err(CallError::Reply(error_payload)) => assert_eq!(error_payload, payload),
+        result => panic!(
+            "Got result {:?} when calling reply_error_tuple with payload {:?}",
+            result, payload
+        ),
+    }
+}
+
+#[tokio::test]
+async fn phoenix_channels_call_with_json_payload_raise_test() {
+    phoenix_channels_call_raise_test("json", json_payload()).await;
+}
+
+#[tokio::test]
+async fn phoenix_channels_call_with_binary_payload_raise_test() {
+    phoenix_channels_call_raise_test("binary", binary_payload()).await;
+}
+
+async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
