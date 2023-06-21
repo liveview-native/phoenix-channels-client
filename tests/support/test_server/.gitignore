@@ -24,3 +24,6 @@ test_server-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+/node_modules
+/package-lock.json
