@@ -31,7 +31,7 @@ use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
 use crate::reference::Reference;
 use crate::socket::{ConnectError, ObservableStatus, Status};
 use crate::topic::Topic;
-use crate::{channel, socket, Channel, EventPayload, Socket};
+use crate::{channel, socket, CallError, Channel, EventPayload, Socket};
 use crate::{Event, Payload, PhoenixEvent};
 
 pub(super) struct Listener {
@@ -792,7 +792,11 @@ impl Connected {
                 "received reply on topic {} joined as {} to message ref {}, status is {}",
                 &reply.topic, &reply.join_reference, &reply.reference, &reply.status
             );
-            reply_tx.send(Ok(reply.payload)).ok();
+            let result = match reply.status {
+                ReplyStatus::Ok => Ok(reply.payload),
+                ReplyStatus::Error => Err(CallError::Reply(reply.payload)),
+            };
+            reply_tx.send(result).ok();
         } else {
             debug!(
                 "received reply on topic {} joined as {} to message ref {} with status {}, but it was ignored",
