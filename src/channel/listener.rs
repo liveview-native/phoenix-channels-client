@@ -647,9 +647,18 @@ impl State {
                     }
                 }
                 Connectivity::Disconnected(Disconnected::Disconnect) => {
+                    Self::send_to_channel_txs(
+                        channel_joined_txs,
+                        Err(JoinError::SocketDisconnected),
+                    );
+
                     State::WaitingForSocketToConnect { rejoin: None }
                 }
-                Connectivity::Disconnected(Disconnected::Shutdown) => State::ShuttingDown,
+                Connectivity::Disconnected(Disconnected::Shutdown) => {
+                    Self::send_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
+
+                    State::ShuttingDown
+                }
             },
             State::WaitingToRejoin { sleep, rejoin } => match connectivity {
                 Connectivity::Connected => State::WaitingToRejoin { sleep, rejoin },
@@ -674,22 +683,19 @@ impl State {
             },
             State::Leaving(Leaving {
                 channel_left_txs, ..
-            }) => match connectivity {
-                Connectivity::Connected => {
-                    Self::send_to_channel_txs(channel_left_txs, Ok(()));
+            }) => {
+                Self::send_to_channel_txs(channel_left_txs, Ok(()));
 
-                    State::Left
+                match connectivity {
+                    Connectivity::Connected => State::Left,
+                    Connectivity::Disconnected(disconnected) => match disconnected {
+                        Disconnected::Disconnect | Disconnected::Reconnect => {
+                            State::WaitingForSocketToConnect { rejoin: None }
+                        }
+                        Disconnected::Shutdown => State::ShuttingDown,
+                    },
                 }
-                Connectivity::Disconnected(disconnected) => match disconnected {
-                    Disconnected::Disconnect => State::WaitingForSocketToConnect { rejoin: None },
-                    Disconnected::Shutdown => State::ShuttingDown,
-                    Disconnected::Reconnect => {
-                        Self::send_to_channel_txs(channel_left_txs, Ok(()));
-
-                        State::WaitingForSocketToConnect { rejoin: None }
-                    }
-                },
-            },
+            }
             State::ShuttingDown => self,
         };
 
