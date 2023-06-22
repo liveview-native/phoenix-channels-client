@@ -13,4 +13,4 @@ pub use serde_json::Value;
 
 pub use self::channel::*;
 pub use self::message::{Event, Payload, PhoenixEvent};
-pub use self::socket::{ConnectError, Socket, SocketError};
+pub use self::socket::{ConnectError, Socket, SpawnError};
