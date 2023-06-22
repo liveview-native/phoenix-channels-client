@@ -8,6 +8,7 @@ use std::time::Duration;
 use atomic_take::AtomicTake;
 use flexstr::SharedStr;
 use log::error;
+use thiserror::Error;
 use tokio::sync::oneshot;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -20,12 +21,27 @@ use url::Url;
 use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::join_reference::JoinReference;
 use crate::message::*;
+pub use crate::socket::listener::ShutdownError;
 use crate::socket::listener::{
     ChannelSendCommand, ChannelSpawn, ChannelStateCommand, Connect, Join, Leave, Listener,
-    ShutdownError, StateCommand,
+    StateCommand,
 };
 use crate::topic::Topic;
 use crate::{channel, Channel, EventPayload};
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    Spawn(#[from] SpawnError),
+    #[error(transparent)]
+    Connect(#[from] ConnectError),
+    #[error(transparent)]
+    Channel(#[from] ChannelError),
+    #[error(transparent)]
+    Disconnect(#[from] DisconnectError),
+    #[error(transparent)]
+    Shutdown(#[from] ShutdownError),
+}
 
 const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 
