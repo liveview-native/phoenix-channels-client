@@ -35,17 +35,6 @@ pub enum SocketError {
     /// Occurs when the configured url is invalid for some reason
     #[error("invalid url: {0}")]
     InvalidUrl(Url),
-    /// Occurs when attempting to connect a client that is already connected
-    #[error("already connected")]
-    AlreadyConnected,
-    /// Occurs when attempting an operation on a disconnected client
-    #[error("not connected")]
-    NotConnected,
-    #[error("not joined to topic {0}")]
-    ChannelNotJoined(Arc<String>),
-    /// Occurs when the client fails due to a low-level connection error on the socket
-    #[error("connection error: {0}")]
-    ConnectionError(#[from] tungstenite::Error),
 }
 
 /// A [`Socket`] manages the underlying WebSocket connection used to talk to Phoenix.
