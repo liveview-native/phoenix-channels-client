@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use flexstr::SharedStr;
 use log::{debug, error};
+use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -24,6 +25,16 @@ use crate::socket;
 use crate::socket::listener::Connectivity;
 use crate::socket::Socket;
 use crate::topic::Topic;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    Join(#[from] JoinError),
+    #[error(transparent)]
+    Cast(#[from] CastError),
+    #[error(transparent)]
+    Call(#[from] CallError),
+}
 
 #[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
