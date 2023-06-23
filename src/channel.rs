@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use flexstr::SharedStr;
 use log::{debug, error};
+use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -25,26 +26,14 @@ use crate::socket::listener::Connectivity;
 use crate::socket::Socket;
 use crate::topic::Topic;
 
-/// Represents errors that occur when interacting with [`Channel`]
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum ChannelError {
-    /// Occurs when [Channel::join] is called when a channel is already joined
-    #[error("already joined")]
-    AlreadyJoined,
-    /// Occurs when you perform an operation on a channel that is closing/closed
-    #[error("channel is closed")]
-    Closed,
-    /// Occurs when a join/send operation times out
-    #[error("operation failed due to timeout")]
-    Timeout,
-    /// Occurs when the join message for a channel receives an error reply from the server
-    #[error("error occurred while joining channel: {0}")]
-    JoinFailed(Box<Payload>),
-}
-impl From<oneshot::error::RecvError> for ChannelError {
-    fn from(_err: oneshot::error::RecvError) -> Self {
-        Self::Closed
-    }
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    Join(#[from] JoinError),
+    #[error(transparent)]
+    Cast(#[from] CastError),
+    #[error(transparent)]
+    Call(#[from] CallError),
 }
 
 #[doc(hidden)]

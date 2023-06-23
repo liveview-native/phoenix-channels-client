@@ -8,6 +8,7 @@ use std::time::Duration;
 use atomic_take::AtomicTake;
 use flexstr::SharedStr;
 use log::error;
+use thiserror::Error;
 use tokio::sync::oneshot;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -20,33 +21,29 @@ use url::Url;
 use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::join_reference::JoinReference;
 use crate::message::*;
+pub use crate::socket::listener::ShutdownError;
 use crate::socket::listener::{
     ChannelSendCommand, ChannelSpawn, ChannelStateCommand, Connect, Join, Leave, Listener,
-    ShutdownError, StateCommand,
+    StateCommand,
 };
 use crate::topic::Topic;
 use crate::{channel, Channel, EventPayload};
 
-const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
-
-/// Represents errors that occur when interacting with a [`Socket`]
-#[derive(Debug, thiserror::Error)]
-pub enum SocketError {
-    /// Occurs when the configured url is invalid for some reason
-    #[error("invalid url: {0}")]
-    InvalidUrl(Url),
-    /// Occurs when attempting to connect a client that is already connected
-    #[error("already connected")]
-    AlreadyConnected,
-    /// Occurs when attempting an operation on a disconnected client
-    #[error("not connected")]
-    NotConnected,
-    #[error("not joined to topic {0}")]
-    ChannelNotJoined(Arc<String>),
-    /// Occurs when the client fails due to a low-level connection error on the socket
-    #[error("connection error: {0}")]
-    ConnectionError(#[from] tungstenite::Error),
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    Spawn(#[from] SpawnError),
+    #[error(transparent)]
+    Connect(#[from] ConnectError),
+    #[error(transparent)]
+    Channel(#[from] ChannelError),
+    #[error(transparent)]
+    Disconnect(#[from] DisconnectError),
+    #[error(transparent)]
+    Shutdown(#[from] ShutdownError),
 }
+
+const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 
 /// A [`Socket`] manages the underlying WebSocket connection used to talk to Phoenix.
 ///
@@ -70,12 +67,13 @@ pub struct Socket {
     /// * None - spawned task has been joined once.
     join_handle: AtomicTake<JoinHandle<Result<(), ShutdownError>>>,
 }
+
 impl Socket {
     /// Spawns a new [Socket] that must be [connect]ed.
-    pub async fn spawn(mut url: Url) -> Result<Arc<Self>, SocketError> {
+    pub async fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
-            _ => return Err(SocketError::InvalidUrl(url)),
+            _ => return Err(SpawnError::UnsupportedScheme(url)),
         }
 
         // Modify url with given parameters
@@ -317,6 +315,14 @@ impl Socket {
             None => Err(ShutdownError::AlreadyJoined),
         }
     }
+}
+
+/// Represents errors that occur from [`Socket::spawn`]
+#[derive(Debug, thiserror::Error)]
+pub enum SpawnError {
+    /// Occurs when the configured url's scheme is not ws or wss.
+    #[error("Unsupported scheme in url ({0}). Supported schemes are ws and wss.")]
+    UnsupportedScheme(Url),
 }
 
 #[derive(Debug, thiserror::Error)]

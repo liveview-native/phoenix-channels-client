@@ -12,13 +12,13 @@ use tokio::time;
 
 use log::debug;
 use phoenix_channels_client::socket::Status;
+use phoenix_channels_client::Error;
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
 use std::io::ErrorKind;
 use tokio::time::{timeout, Instant};
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::http::StatusCode;
-use tokio_tungstenite::tungstenite::Error;
 use url::Url;
 use uuid::Uuid;
 
@@ -37,7 +37,7 @@ macro_rules! assert_matches {
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_status_test() {
+async fn phoenix_channels_socket_status_test() -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -46,26 +46,28 @@ async fn phoenix_channels_socket_status_test() {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = Socket::spawn(url).await.unwrap();
+    let socket = Socket::spawn(url).await?;
 
     assert_eq!(socket.status(), socket::Status::NeverConnected);
     assert_eq!(socket.has_never_connected(), true);
 
-    socket.connect(CONNECT_TIMEOUT).await.unwrap();
+    socket.connect(CONNECT_TIMEOUT).await?;
     assert_eq!(socket.status(), socket::Status::Connected);
     assert_eq!(socket.is_connected(), true);
 
-    socket.disconnect().await.unwrap();
+    socket.disconnect().await?;
     assert_eq!(socket.status(), socket::Status::Disconnected);
     assert_eq!(socket.is_disconnected(), true);
 
-    socket.shutdown().await.unwrap();
+    socket.shutdown().await?;
     assert_eq!(socket.status(), socket::Status::ShutDown);
     assert_eq!(socket.is_shutdown(), true);
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_event_test() {
+async fn phoenix_channels_socket_event_test() -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -74,11 +76,11 @@ async fn phoenix_channels_socket_event_test() {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = Socket::spawn(url).await.unwrap();
+    let socket = Socket::spawn(url).await?;
 
     let mut statuses = socket.statuses();
 
-    socket.connect(CONNECT_TIMEOUT).await.unwrap();
+    socket.connect(CONNECT_TIMEOUT).await?;
     assert_matches!(
         timeout(CONNECT_TIMEOUT, statuses.recv())
             .await
@@ -87,8 +89,8 @@ async fn phoenix_channels_socket_event_test() {
         Ok(socket::Status::Connected)
     );
 
-    let channel = socket.channel("channel:disconnect", None).await.unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel("channel:disconnect", None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
     assert_matches!(
         channel
             .call("socket_disconnect", json!({}), CALL_TIMEOUT)
@@ -111,7 +113,7 @@ async fn phoenix_channels_socket_event_test() {
         Ok(socket::Status::Connected)
     );
 
-    socket.disconnect().await.unwrap();
+    socket.disconnect().await?;
     assert_matches!(
         timeout(CALL_TIMEOUT, statuses.recv())
             .await
@@ -120,7 +122,7 @@ async fn phoenix_channels_socket_event_test() {
         Ok(socket::Status::Disconnected)
     );
 
-    socket.shutdown().await.unwrap();
+    socket.shutdown().await?;
     assert_matches!(
         timeout(CALL_TIMEOUT, statuses.recv())
             .await
@@ -135,10 +137,12 @@ async fn phoenix_channels_socket_event_test() {
             .unwrap(),
         Ok(socket::Status::ShutDown)
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_key_rotation_test() {
+async fn phoenix_channels_socket_key_rotation_test() -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -147,18 +151,18 @@ async fn phoenix_channels_socket_key_rotation_test() {
 
     let id = id();
     let shared_secret_url = shared_secret_url(id.clone());
-    let generate_secret_socket = connected_socket(shared_secret_url).await;
+    let generate_secret_socket = connected_socket(shared_secret_url).await?;
 
     let generate_secret_channel = generate_secret_socket
         .channel("channel:generate_secret", None)
-        .await
-        .unwrap();
+        .await?;
     generate_secret_channel.join(JOIN_TIMEOUT).await.unwrap();
 
     let Payload::Value(value) = generate_secret_channel
         .call("generate_secret", json!({}), CALL_TIMEOUT)
-        .await
-        .unwrap() else {panic!("secret not returned")};
+        .await? else {
+            panic!("secret not returned")
+        };
 
     let secret = if let Value::String(ref secret) = *value {
         secret.to_owned()
@@ -167,15 +171,14 @@ async fn phoenix_channels_socket_key_rotation_test() {
     };
 
     let secret_url = secret_url(id, secret);
-    let secret_socket = connected_socket(secret_url).await;
+    let secret_socket = connected_socket(secret_url).await?;
 
-    let secret_channel = secret_socket.channel("channel:secret", None).await.unwrap();
-    secret_channel.join(JOIN_TIMEOUT).await.unwrap();
+    let secret_channel = secret_socket.channel("channel:secret", None).await?;
+    secret_channel.join(JOIN_TIMEOUT).await?;
 
     secret_channel
         .call("delete_secret", json!({}), CALL_TIMEOUT)
-        .await
-        .unwrap();
+        .await?;
     let payload = json_payload();
 
     let mut statuses = secret_socket.statuses();
@@ -201,7 +204,7 @@ async fn phoenix_channels_socket_key_rotation_test() {
 
     loop {
         tokio::select! {
-            result  = timeout(CALL_TIMEOUT, statuses.recv()) => match result.unwrap().unwrap() {
+            result  = timeout(CALL_TIMEOUT, statuses.recv()) => match result?? {
                 Ok(Status::WaitingToReconnect) => {
                     reconnect_count += 1;
 
@@ -223,19 +226,21 @@ async fn phoenix_channels_socket_key_rotation_test() {
             }
         }
     }
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_disconnect_reconnect_test() {
-    phoenix_channels_reconnect_test("socket_disconnect").await;
+async fn phoenix_channels_socket_disconnect_reconnect_test() -> Result<(), Error> {
+    phoenix_channels_reconnect_test("socket_disconnect").await
 }
 
 #[tokio::test]
-async fn phoenix_channels_transport_error_reconnect_test() {
-    phoenix_channels_reconnect_test("transport_error").await;
+async fn phoenix_channels_transport_error_reconnect_test() -> Result<(), Error> {
+    phoenix_channels_reconnect_test("transport_error").await
 }
 
-async fn phoenix_channels_reconnect_test(event: &str) {
+async fn phoenix_channels_reconnect_test(event: &str) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -244,13 +249,10 @@ async fn phoenix_channels_reconnect_test(event: &str) {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
-    let channel = socket
-        .channel(format!("channel:{}", event), None)
-        .await
-        .unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel(format!("channel:{}", event), None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
 
     let call_error = channel
         .call(event, json!({}), CALL_TIMEOUT)
@@ -286,20 +288,22 @@ async fn phoenix_channels_reconnect_test(event: &str) {
             CallError::SocketDisconnected => panic!("socket disconnected"),
             CallError::Reply(payload) => panic!("Error from server: {:?}", payload),
         },
-    }
+    };
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_json_payload_test() {
-    phoenix_channels_join_payload_test("json", json_payload()).await;
+async fn phoenix_channels_join_json_payload_test() -> Result<(), Error> {
+    phoenix_channels_join_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_binary_payload_test() {
-    phoenix_channels_join_payload_test("binary", binary_payload()).await;
+async fn phoenix_channels_join_binary_payload_test() -> Result<(), Error> {
+    phoenix_channels_join_payload_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -308,31 +312,32 @@ async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
     let topic = format!("channel:join:payload:{}", subtopic);
 
-    let channel = socket.channel(&topic, Some(payload.clone())).await.unwrap();
+    let channel = socket.channel(&topic, Some(payload.clone())).await?;
 
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await?;
 
     let received_payload = channel
         .call("reply_ok_join_payload", json!({}), CALL_TIMEOUT)
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(received_payload, payload);
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_json_error_test() {
-    phoenix_channels_join_error_test("json", json_payload()).await;
+async fn phoenix_channels_join_json_error_test() -> Result<(), Error> {
+    phoenix_channels_join_error_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_binary_error_test() {
-    phoenix_channels_join_error_test("binary", binary_payload()).await;
+async fn phoenix_channels_join_binary_error_test() -> Result<(), Error> {
+    phoenix_channels_join_error_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -341,7 +346,7 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
     let topic = format!("channel:error:{}", subtopic);
     let channel = socket.channel(&topic, Some(payload.clone())).await.unwrap();
@@ -352,19 +357,21 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) {
     let channel_error = result.err().unwrap();
 
     assert_eq!(channel_error, JoinError::Rejected(payload));
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_json_broadcast_test() {
-    phoenix_channels_broadcast_test("json", json_payload()).await;
+async fn phoenix_channels_json_broadcast_test() -> Result<(), Error> {
+    phoenix_channels_broadcast_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_binary_broadcast_test() {
-    phoenix_channels_broadcast_test("binary", binary_payload()).await;
+async fn phoenix_channels_binary_broadcast_test() -> Result<(), Error> {
+    phoenix_channels_broadcast_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -373,11 +380,11 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
 
     let id = id();
     let url = shared_secret_url(id);
-    let receiver_client = connected_socket(url.clone()).await;
+    let receiver_client = connected_socket(url.clone()).await?;
 
     let topic = format!("channel:broadcast:{}", subtopic);
-    let receiver_channel = receiver_client.channel(&topic, None).await.unwrap();
-    receiver_channel.join(JOIN_TIMEOUT).await.unwrap();
+    let receiver_channel = receiver_client.channel(&topic, None).await?;
+    receiver_channel.join(JOIN_TIMEOUT).await?;
     assert!(receiver_channel.is_joined());
 
     const EVENT: &'static str = "broadcast";
@@ -405,29 +412,36 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) {
         }
     });
 
-    let sender_client = connected_socket(url).await;
+    let sender_client = connected_socket(url).await?;
 
-    let sender_channel = sender_client.channel(&topic, None).await.unwrap();
-    sender_channel.join(JOIN_TIMEOUT).await.unwrap();
+    let sender_channel = sender_client.channel(&topic, None).await?;
+    sender_channel.join(JOIN_TIMEOUT).await?;
     assert!(sender_channel.is_joined());
 
-    sender_channel.cast(EVENT, sent_payload).await.unwrap();
+    sender_channel.cast(EVENT, sent_payload).await?;
 
     let result = time::timeout(CALL_TIMEOUT, test_notify.notified()).await;
     assert_matches!(result, Ok(_));
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_json_payload_reply_ok_without_payload_test() {
-    phoenix_channels_call_reply_ok_without_payload_test("json", json_payload()).await;
+async fn phoenix_channels_call_with_json_payload_reply_ok_without_payload_test() -> Result<(), Error>
+{
+    phoenix_channels_call_reply_ok_without_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_binary_payload_reply_ok_without_payload_test() {
-    phoenix_channels_call_reply_ok_without_payload_test("binary", binary_payload()).await;
+async fn phoenix_channels_call_with_binary_payload_reply_ok_without_payload_test(
+) -> Result<(), Error> {
+    phoenix_channels_call_reply_ok_without_payload_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_call_reply_ok_without_payload_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_call_reply_ok_without_payload_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -436,33 +450,39 @@ async fn phoenix_channels_call_reply_ok_without_payload_test(subtopic: &str, pay
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
     let topic = format!("channel:call:{}", subtopic);
-    let channel = socket.channel(&topic, None).await.unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
     assert!(channel.is_joined());
 
     assert_eq!(
         channel
             .call("reply_ok", payload.clone(), CALL_TIMEOUT)
-            .await
-            .unwrap(),
+            .await?,
         json!({}).into()
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_json_payload_reply_error_without_payload_test() {
-    phoenix_channels_call_reply_error_without_payload_test("json", json_payload()).await;
+async fn phoenix_channels_call_with_json_payload_reply_error_without_payload_test(
+) -> Result<(), Error> {
+    phoenix_channels_call_reply_error_without_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_binary_payload_reply_error_without_payload_test() {
-    phoenix_channels_call_reply_error_without_payload_test("binary", binary_payload()).await;
+async fn phoenix_channels_call_with_binary_payload_reply_error_without_payload_test(
+) -> Result<(), Error> {
+    phoenix_channels_call_reply_error_without_payload_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_call_reply_error_without_payload_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_call_reply_error_without_payload_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -471,30 +491,35 @@ async fn phoenix_channels_call_reply_error_without_payload_test(subtopic: &str, 
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
     let topic = format!("channel:call:{}", subtopic);
-    let channel = socket.channel(&topic, None).await.unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
     assert!(channel.is_joined());
 
     match channel.call("reply_error", payload, CALL_TIMEOUT).await {
         Err(CallError::Reply(payload)) => assert_eq!(payload, json!({}).into()),
         result => panic!("Received result {:?} when calling reply_error", result),
-    }
+    };
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_reply_ok_with_json_payload_test() {
-    phoenix_channels_call_reply_ok_with_payload_test("json", json_payload()).await;
+async fn phoenix_channels_call_reply_ok_with_json_payload_test() -> Result<(), Error> {
+    phoenix_channels_call_reply_ok_with_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_reply_ok_with_binary_payload_test() {
-    phoenix_channels_call_reply_ok_with_payload_test("binary", binary_payload()).await;
+async fn phoenix_channels_call_reply_ok_with_binary_payload_test() -> Result<(), Error> {
+    phoenix_channels_call_reply_ok_with_payload_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_call_reply_ok_with_payload_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_call_reply_ok_with_payload_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -503,11 +528,11 @@ async fn phoenix_channels_call_reply_ok_with_payload_test(subtopic: &str, payloa
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
     let topic = format!("channel:call:{}", subtopic);
-    let channel = socket.channel(&topic, None).await.unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
     assert!(channel.is_joined());
 
     match channel
@@ -519,24 +544,28 @@ async fn phoenix_channels_call_reply_ok_with_payload_test(subtopic: &str, payloa
             "CallError {:?} when calling reply_ok_tuple with payload {:?}",
             call_error, payload
         ),
-    }
+    };
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_json_payload_reply_error_with_json_payload_test() {
-    phoenix_channels_call_with_payload_reply_error_with_payload_test("json", json_payload()).await;
+async fn phoenix_channels_call_with_json_payload_reply_error_with_json_payload_test(
+) -> Result<(), Error> {
+    phoenix_channels_call_with_payload_reply_error_with_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_binary_payload_reply_error_with_binary_payload_test() {
+async fn phoenix_channels_call_with_binary_payload_reply_error_with_binary_payload_test(
+) -> Result<(), Error> {
     phoenix_channels_call_with_payload_reply_error_with_payload_test("binary", binary_payload())
-        .await;
+        .await
 }
 
 async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
     subtopic: &str,
     payload: Payload,
-) {
+) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -545,11 +574,11 @@ async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
     let topic = format!("channel:call:{}", subtopic);
-    let channel = socket.channel(&topic, None).await.unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
     assert!(channel.is_joined());
 
     match channel
@@ -561,20 +590,22 @@ async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
             "Got result {:?} when calling reply_error_tuple with payload {:?}",
             result, payload
         ),
-    }
+    };
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_json_payload_raise_test() {
-    phoenix_channels_call_raise_test("json", json_payload()).await;
+async fn phoenix_channels_call_with_json_payload_raise_test() -> Result<(), Error> {
+    phoenix_channels_call_raise_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_binary_payload_raise_test() {
-    phoenix_channels_call_raise_test("binary", binary_payload()).await;
+async fn phoenix_channels_call_with_binary_payload_raise_test() -> Result<(), Error> {
+    phoenix_channels_call_raise_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -583,11 +614,11 @@ async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
     let topic = format!("channel:raise:{}", subtopic);
-    let channel = socket.channel(&topic, None).await.unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
     assert!(channel.is_joined());
 
     let send_error = channel
@@ -596,19 +627,21 @@ async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) {
         .unwrap_err();
 
     assert_matches!(send_error, CallError::Timeout);
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn phoenix_channels_cast_error_json_test() {
-    phoenix_channels_cast_error_test("json", json_payload()).await;
+async fn phoenix_channels_cast_error_json_test() -> Result<(), Error> {
+    phoenix_channels_cast_error_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_cast_error_binary_test() {
-    phoenix_channels_cast_error_test("binary", binary_payload()).await;
+async fn phoenix_channels_cast_error_binary_test() -> Result<(), Error> {
+    phoenix_channels_cast_error_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) {
+async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -617,25 +650,27 @@ async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = connected_socket(url).await;
+    let socket = connected_socket(url).await?;
 
     let topic = format!("channel:raise:{}", subtopic);
-    let channel = socket.channel(&topic, None).await.unwrap();
-    channel.join(JOIN_TIMEOUT).await.unwrap();
+    let channel = socket.channel(&topic, None).await?;
+    channel.join(JOIN_TIMEOUT).await?;
     assert!(channel.is_joined());
 
     let result = channel.cast("raise", payload.clone()).await;
 
     assert_matches!(result, Ok(()));
+
+    Ok(())
 }
 
-async fn connected_socket(url: Url) -> Arc<Socket> {
-    let socket = Socket::spawn(url).await.unwrap();
+async fn connected_socket(url: Url) -> Result<Arc<Socket>, Error> {
+    let socket = Socket::spawn(url).await?;
 
     if let Err(connect_error) = socket.connect(CONNECT_TIMEOUT).await {
         match connect_error {
             ConnectError::WebSocketError(ref web_socket_error) => {
-                if let Error::Io(io_error) = web_socket_error.as_ref() {
+                if let tungstenite::Error::Io(io_error) = web_socket_error.as_ref() {
                     if io_error.kind() == ErrorKind::ConnectionRefused {
                         panic!("Phoenix server not started. Run: cd tests/support/test_server && iex -S mix")
                     } else {
@@ -649,7 +684,7 @@ async fn connected_socket(url: Url) -> Arc<Socket> {
         };
     }
 
-    socket
+    Ok(socket)
 }
 
 fn shared_secret_url(id: String) -> Url {
