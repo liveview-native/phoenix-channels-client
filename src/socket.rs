@@ -73,7 +73,7 @@ impl Socket {
     pub async fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
-            _ => return Err(SpawnError::InvalidUrl(url)),
+            _ => return Err(SpawnError::UnsupportedScheme(url)),
         }
 
         // Modify url with given parameters
@@ -320,9 +320,9 @@ impl Socket {
 /// Represents errors that occur from [`Socket::spawn`]
 #[derive(Debug, thiserror::Error)]
 pub enum SpawnError {
-    /// Occurs when the configured url is invalid for some reason
-    #[error("invalid url: {0}")]
-    InvalidUrl(Url),
+    /// Occurs when the configured url's scheme is not ws or wss.
+    #[error("Unsupported scheme in url ({0}). Supported schemes are ws and wss.")]
+    UnsupportedScheme(Url),
 }
 
 #[derive(Debug, thiserror::Error)]
