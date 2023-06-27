@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +13,7 @@ use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::http::Response;
 
-use crate::channel::{EventPayload, Status};
+use crate::channel::{EventPayload, ObservableStatus, Status};
 use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Push};
 use crate::socket::listener::{Connectivity, Disconnected};
@@ -26,7 +25,7 @@ pub(super) struct Listener {
     socket_connectivity_rx: broadcast::Receiver<Connectivity>,
     topic: Topic,
     payload: Payload,
-    channel_status: Arc<AtomicU32>,
+    channel_status: ObservableStatus,
     shutdown_rx: oneshot::Receiver<()>,
     event_payload_tx: broadcast::Sender<EventPayload>,
     state_command_rx: mpsc::Receiver<StateCommand>,
@@ -41,7 +40,7 @@ impl Listener {
         topic: Topic,
         payload: Payload,
         state: State,
-        channel_status: Arc<AtomicU32>,
+        channel_status: ObservableStatus,
         shutdown_rx: oneshot::Receiver<()>,
         event_payload_tx: broadcast::Sender<EventPayload>,
         state_command_rx: mpsc::Receiver<StateCommand>,
@@ -69,7 +68,7 @@ impl Listener {
         topic: Topic,
         payload: Payload,
         state: State,
-        channel_status: Arc<AtomicU32>,
+        channel_status: ObservableStatus,
         shutdown_rx: oneshot::Receiver<()>,
         event_payload_tx: broadcast::Sender<EventPayload>,
         state_command_rx: mpsc::Receiver<StateCommand>,
@@ -96,7 +95,7 @@ impl Listener {
             &self.topic, &self.join_reference
         );
 
-        loop {
+        let result = loop {
             let mut current_state = self.state.take().unwrap();
             let current_discriminant = mem::discriminant(&current_state);
 
@@ -180,8 +179,7 @@ impl Listener {
                 State::ShuttingDown => break Ok(()),
             };
 
-            self.channel_status
-                .store(next_state.status() as u32, Ordering::SeqCst);
+            self.channel_status.set(next_state.status());
 
             let next_discriminant = mem::discriminant(&next_state);
 
@@ -190,7 +188,11 @@ impl Listener {
             }
 
             self.state = Some(next_state);
-        }
+        };
+
+        self.channel_status.set(Status::ShutDown);
+
+        result
     }
 
     async fn update_state(

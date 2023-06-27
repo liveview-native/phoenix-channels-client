@@ -1,26 +1,25 @@
 #![cfg_attr(feature = "nightly", feature(assert_matches))]
 #![feature(async_closure)]
 
-use std::sync::Arc;
-use std::time::Duration;
-
-use phoenix_channels_client::{
-    socket, CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
-};
-use serde_json::{json, Value};
-use tokio::time;
-
-use log::debug;
-use phoenix_channels_client::socket::Status;
-use phoenix_channels_client::Error;
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
 use std::io::ErrorKind;
+use std::sync::Arc;
+use std::time::Duration;
+
+use log::debug;
+use serde_json::{json, Value};
+use tokio::time;
 use tokio::time::{timeout, Instant};
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::http::StatusCode;
 use url::Url;
 use uuid::Uuid;
+
+use phoenix_channels_client::Error;
+use phoenix_channels_client::{
+    channel, socket, CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
+};
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! assert_matches {
@@ -37,7 +36,7 @@ macro_rules! assert_matches {
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_status_test() -> Result<(), Error> {
+async fn socket_status() -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -67,7 +66,7 @@ async fn phoenix_channels_socket_status_test() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_event_test() -> Result<(), Error> {
+async fn socket_statuses() -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -142,6 +141,154 @@ async fn phoenix_channels_socket_event_test() -> Result<(), Error> {
 }
 
 #[tokio::test]
+async fn channel_status() -> Result<(), Error> {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = Socket::spawn(url).await?;
+
+    let channel = socket.channel("channel:status", None).await?;
+
+    assert_eq!(channel.status(), channel::Status::WaitingForSocketToConnect);
+    assert_eq!(channel.is_waiting_for_socket_to_connect(), true);
+
+    socket.connect(CONNECT_TIMEOUT).await?;
+    assert_eq!(channel.status(), channel::Status::WaitingToJoin);
+    assert_eq!(channel.is_waiting_to_join(), true);
+
+    channel.join(JOIN_TIMEOUT).await?;
+    assert_eq!(channel.status(), channel::Status::Joined);
+    assert_eq!(channel.has_joined(), true);
+
+    channel.leave().await?;
+    assert_eq!(channel.status(), channel::Status::Left);
+    assert_eq!(channel.has_left(), true);
+
+    channel.shutdown().await?;
+    assert_eq!(channel.status(), channel::Status::ShutDown);
+    assert_eq!(channel.has_shut_down(), true);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn channel_statuses() -> Result<(), Error> {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = Socket::spawn(url).await?;
+
+    let channel = socket.channel("channel:status", None).await?;
+
+    let mut statuses = channel.statuses();
+
+    socket.connect(CONNECT_TIMEOUT).await?;
+    assert_matches!(
+        timeout(CONNECT_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::WaitingToJoin)
+    );
+
+    channel.join(JOIN_TIMEOUT).await?;
+    assert_matches!(
+        timeout(JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::Joining)
+    );
+    assert_matches!(
+        timeout(JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::Joined)
+    );
+
+    assert_matches!(
+        channel
+            .call("socket_disconnect", json!({}), CALL_TIMEOUT)
+            .await
+            .unwrap_err(),
+        CallError::SocketDisconnected
+    );
+    assert_matches!(
+        timeout(CALL_TIMEOUT + JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::WaitingForSocketToConnect)
+    );
+    assert_matches!(
+        timeout(CALL_TIMEOUT + JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::WaitingToRejoin)
+    );
+    assert_matches!(
+        timeout(JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::Joining)
+    );
+    assert_matches!(
+        timeout(JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::Joined)
+    );
+
+    channel.leave().await?;
+    assert_matches!(
+        timeout(JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::Leaving)
+    );
+    assert_matches!(
+        timeout(JOIN_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::Left)
+    );
+
+    channel.shutdown().await?;
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::ShuttingDown)
+    );
+    assert_matches!(
+        timeout(CALL_TIMEOUT, statuses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(channel::Status::ShutDown)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn phoenix_channels_socket_key_rotation_test() -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
@@ -205,7 +352,7 @@ async fn phoenix_channels_socket_key_rotation_test() -> Result<(), Error> {
     loop {
         tokio::select! {
             result  = timeout(CALL_TIMEOUT, statuses.recv()) => match result?? {
-                Ok(Status::WaitingToReconnect) => {
+                Ok(socket::Status::WaitingToReconnect) => {
                     reconnect_count += 1;
 
                     if reconnect_count > 5 {
@@ -385,7 +532,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Re
     let topic = format!("channel:broadcast:{}", subtopic);
     let receiver_channel = receiver_client.channel(&topic, None).await?;
     receiver_channel.join(JOIN_TIMEOUT).await?;
-    assert!(receiver_channel.is_joined());
+    assert!(receiver_channel.has_joined());
 
     const EVENT: &'static str = "broadcast";
     let sent_payload = payload;
@@ -416,7 +563,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Re
 
     let sender_channel = sender_client.channel(&topic, None).await?;
     sender_channel.join(JOIN_TIMEOUT).await?;
-    assert!(sender_channel.is_joined());
+    assert!(sender_channel.has_joined());
 
     sender_channel.cast(EVENT, sent_payload).await?;
 
@@ -455,7 +602,7 @@ async fn phoenix_channels_call_reply_ok_without_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.is_joined());
+    assert!(channel.has_joined());
 
     assert_eq!(
         channel
@@ -496,7 +643,7 @@ async fn phoenix_channels_call_reply_error_without_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.is_joined());
+    assert!(channel.has_joined());
 
     match channel.call("reply_error", payload, CALL_TIMEOUT).await {
         Err(CallError::Reply(payload)) => assert_eq!(payload, json!({}).into()),
@@ -533,7 +680,7 @@ async fn phoenix_channels_call_reply_ok_with_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.is_joined());
+    assert!(channel.has_joined());
 
     match channel
         .call("reply_ok_tuple", payload.clone(), CALL_TIMEOUT)
@@ -579,7 +726,7 @@ async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.is_joined());
+    assert!(channel.has_joined());
 
     match channel
         .call("reply_error_tuple", payload.clone(), CALL_TIMEOUT)
@@ -619,7 +766,7 @@ async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) -> R
     let topic = format!("channel:raise:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.is_joined());
+    assert!(channel.has_joined());
 
     let send_error = channel
         .call("raise", payload.clone(), CALL_TIMEOUT)
@@ -655,7 +802,7 @@ async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) -> R
     let topic = format!("channel:raise:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.is_joined());
+    assert!(channel.has_joined());
 
     let result = channel.cast("raise", payload.clone()).await;
 

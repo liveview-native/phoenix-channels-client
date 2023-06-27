@@ -1,7 +1,6 @@
 pub(crate) mod listener;
 
 use std::panic;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -83,7 +82,7 @@ impl Socket {
         }
 
         let url = Arc::new(url);
-        let status = ObservableStatus::new();
+        let status = ObservableStatus::new(Status::default());
         let (channel_spawn_tx, channel_spawn_rx) = mpsc::channel(50);
         let (state_command_tx, state_command_rx) = mpsc::channel(50);
         let (channel_state_command_tx, channel_state_command_rx) = mpsc::channel(50);
@@ -425,41 +424,7 @@ impl From<mpsc::error::SendError<StateCommand>> for DisconnectError {
     }
 }
 
-#[derive(Clone)]
-struct ObservableStatus {
-    status: Arc<AtomicUsize>,
-    tx: broadcast::Sender<Result<Status, Arc<tungstenite::Error>>>,
-}
-impl ObservableStatus {
-    fn new() -> Self {
-        let (tx, _) = broadcast::channel(5);
-
-        ObservableStatus {
-            status: Arc::new(AtomicUsize::new(Status::default() as usize)),
-            tx,
-        }
-    }
-
-    fn get(&self) -> Status {
-        unsafe { core::mem::transmute::<usize, Status>(self.status.load(Ordering::Acquire)) }
-    }
-
-    fn set(&self, status: Status) {
-        let status_usize = status as usize;
-
-        if self.status.swap(status_usize, Ordering::AcqRel) != status_usize {
-            self.tx.send(Ok(status)).ok();
-        }
-    }
-
-    fn error(&self, error: Arc<tungstenite::Error>) {
-        self.tx.send(Err(error)).ok();
-    }
-
-    fn subscribe(&self) -> broadcast::Receiver<Result<Status, Arc<tungstenite::Error>>> {
-        self.tx.subscribe()
-    }
-}
+type ObservableStatus = crate::observable_status::ObservableStatus<Status, Arc<tungstenite::Error>>;
 
 #[doc(hidden)]
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -472,4 +437,9 @@ pub enum Status {
     Disconnected,
     ShuttingDown,
     ShutDown,
+}
+impl From<Status> for usize {
+    fn from(status: Status) -> Self {
+        status as usize
+    }
 }
