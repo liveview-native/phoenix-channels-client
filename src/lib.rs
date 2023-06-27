@@ -2,9 +2,10 @@
 #![cfg_attr(feature = "nightly", feature(slice_take))]
 #![feature(async_closure)]
 
-mod channel;
+pub mod channel;
 mod join_reference;
 mod message;
+mod observable_status;
 mod reference;
 pub mod socket;
 mod topic;
@@ -47,3 +48,5 @@ from_for_error!(socket::ShutdownError, Socket);
 from_for_error!(channel::JoinError, Channel);
 from_for_error!(channel::CallError, Channel);
 from_for_error!(channel::CastError, Channel);
+from_for_error!(channel::LeaveError, Channel);
+from_for_error!(channel::ShutdownError, Channel);

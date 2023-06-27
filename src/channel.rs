@@ -1,7 +1,7 @@
 pub(crate) mod listener;
 
+use atomic_take::AtomicTake;
 use std::panic;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,8 +18,8 @@ use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::http::Response;
 
-pub(crate) use crate::channel::listener::Call;
-use crate::channel::listener::{LeaveError, Listener, SendCommand, ShutdownError, StateCommand};
+pub(crate) use crate::channel::listener::{Call, LeaveError, ShutdownError};
+use crate::channel::listener::{Listener, SendCommand, StateCommand};
 use crate::message::*;
 use crate::socket;
 use crate::socket::listener::Connectivity;
@@ -34,12 +34,17 @@ pub enum Error {
     Cast(#[from] CastError),
     #[error(transparent)]
     Call(#[from] CallError),
+    #[error(transparent)]
+    Leave(#[from] LeaveError),
+    #[error(transparent)]
+    Shutdown(#[from] ShutdownError),
 }
 
 #[doc(hidden)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[repr(u32)]
-pub(crate) enum Status {
+pub enum Status {
+    #[default]
     WaitingForSocketToConnect,
     WaitingToJoin,
     Joining,
@@ -48,6 +53,12 @@ pub(crate) enum Status {
     Leaving,
     Left,
     ShuttingDown,
+    ShutDown,
+}
+impl From<Status> for usize {
+    fn from(status: Status) -> Self {
+        status as usize
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -84,13 +95,13 @@ pub struct Channel {
     topic: Topic,
     payload: Payload,
     /// The channel status
-    status: Arc<AtomicU32>,
+    status: ObservableStatus,
     event_payload_tx: broadcast::Sender<EventPayload>,
-    shutdown_tx: oneshot::Sender<()>,
+    shutdown_tx: AtomicTake<oneshot::Sender<()>>,
     state_command_tx: mpsc::Sender<StateCommand>,
     send_command_tx: mpsc::Sender<SendCommand>,
     /// The join handle corresponding to the channel listener
-    join_handle: JoinHandle<Result<(), ShutdownError>>,
+    join_handle: AtomicTake<JoinHandle<Result<(), ShutdownError>>>,
 }
 impl Channel {
     /// Spawns a new [Channel] that must be [join]ed.  The `topic` and `payload` is sent on the
@@ -105,7 +116,7 @@ impl Channel {
     ) -> Self {
         let topic: Topic = topic.into();
         let payload = payload.unwrap_or_default();
-        let status = Arc::new(AtomicU32::new(state.status() as u32));
+        let status = ObservableStatus::new(state.status());
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let (event_payload_tx, _) = broadcast::channel(10);
         let (state_command_tx, state_command_rx) = mpsc::channel(10);
@@ -128,10 +139,10 @@ impl Channel {
             payload,
             status,
             event_payload_tx,
-            shutdown_tx,
+            shutdown_tx: AtomicTake::new(shutdown_tx),
             state_command_tx,
             send_command_tx,
-            join_handle,
+            join_handle: AtomicTake::new(join_handle),
         }
     }
 
@@ -159,19 +170,50 @@ impl Channel {
         self.payload.clone()
     }
 
+    pub fn is_waiting_for_socket_to_connect(&self) -> bool {
+        self.status() == Status::WaitingForSocketToConnect
+    }
+
+    pub fn is_waiting_to_join(&self) -> bool {
+        self.status() == Status::WaitingToJoin
+    }
+
+    pub fn is_joining(&self) -> bool {
+        self.status() == Status::Joining
+    }
+
+    pub fn is_waiting_to_rejoin(&self) -> bool {
+        self.status() == Status::WaitingToRejoin
+    }
+
     /// Returns true if this channel is currently joined to its topic
-    pub fn is_joined(&self) -> bool {
-        self.get_status() == Status::Joined
+    pub fn has_joined(&self) -> bool {
+        self.status() == Status::Joined
     }
 
     /// Returns true if this channel is currently leaving its topic
     pub fn is_leaving(&self) -> bool {
-        self.get_status() == Status::Leaving
+        self.status() == Status::Leaving
     }
 
-    #[inline]
-    fn get_status(&self) -> Status {
-        unsafe { core::mem::transmute::<u32, Status>(self.status.load(Ordering::SeqCst)) }
+    pub fn has_left(&self) -> bool {
+        self.status() == Status::Left
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.status() == Status::ShuttingDown
+    }
+
+    pub fn has_shut_down(&self) -> bool {
+        self.status() == Status::ShutDown
+    }
+
+    pub fn status(&self) -> Status {
+        self.status.get()
+    }
+
+    pub fn statuses(&self) -> broadcast::Receiver<Result<Status, Payload>> {
+        self.status.subscribe()
     }
 
     pub fn events(&self) -> broadcast::Receiver<EventPayload> {
@@ -253,18 +295,27 @@ impl Channel {
     }
 
     /// Propagates panic from [Listener::listen]
-    pub async fn shutdown(self) -> Result<(), ShutdownError> {
-        self.shutdown_tx
-            .send(())
-            // if already shut down that's OK
-            .ok();
+    pub async fn shutdown(&self) -> Result<(), ShutdownError> {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            shutdown_tx.send(()).ok();
+        }
 
-        match self.join_handle.await {
-            Ok(result) => result,
-            Err(join_error) => panic::resume_unwind(join_error.into_panic()),
+        self.listener_shutdown().await
+    }
+
+    /// Propagates panic from [Listener::listen]
+    async fn listener_shutdown(&self) -> Result<(), ShutdownError> {
+        match self.join_handle.take() {
+            Some(join_handle) => match join_handle.await {
+                Ok(result) => result,
+                Err(join_error) => panic::resume_unwind(join_error.into_panic()),
+            },
+            None => Err(ShutdownError::AlreadyJoined),
         }
     }
 }
+
+type ObservableStatus = crate::observable_status::ObservableStatus<Status, Payload>;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum JoinError {
