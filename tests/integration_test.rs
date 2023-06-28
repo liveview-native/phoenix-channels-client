@@ -47,20 +47,24 @@ async fn socket_status() -> Result<(), Error> {
     let url = shared_secret_url(id);
     let socket = Socket::spawn(url).await?;
 
-    assert_eq!(socket.status(), socket::Status::NeverConnected);
-    assert_eq!(socket.has_never_connected(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::NeverConnected);
+    assert_eq!(status.is_never_connected(), true);
 
     socket.connect(CONNECT_TIMEOUT).await?;
-    assert_eq!(socket.status(), socket::Status::Connected);
-    assert_eq!(socket.is_connected(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::Connected);
+    assert_eq!(status.is_connected(), true);
 
     socket.disconnect().await?;
-    assert_eq!(socket.status(), socket::Status::Disconnected);
-    assert_eq!(socket.is_disconnected(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::Disconnected);
+    assert_eq!(status.is_disconnected(), true);
 
     socket.shutdown().await?;
-    assert_eq!(socket.status(), socket::Status::ShutDown);
-    assert_eq!(socket.is_shutdown(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::ShutDown);
+    assert_eq!(status.is_shut_down(), true);
 
     Ok(())
 }

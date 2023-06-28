@@ -14,6 +14,7 @@ use futures::SinkExt;
 use futures::StreamExt;
 use log::{debug, error};
 use serde_json::Value;
+use strum_macros::{EnumDiscriminants, EnumIs};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -29,7 +30,7 @@ use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
 use crate::reference::Reference;
-use crate::socket::{ConnectError, ObservableStatus, Status};
+use crate::socket::ConnectError;
 use crate::topic::Topic;
 use crate::{channel, socket, CallError, Channel, EventPayload, Socket};
 use crate::{Event, Payload, PhoenixEvent};
@@ -123,7 +124,7 @@ impl Listener {
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await,
                     else => break Ok(())
                 },
-                State::ShuttingDown => break Ok(()),
+                State::ShuttingDown | State::ShutDown => break Ok(()),
             };
 
             self.socket_status.set(next_state.status());
@@ -137,7 +138,9 @@ impl Listener {
             self.state = Some(next_state);
         };
 
-        self.socket_status.set(Status::ShutDown);
+        let state = State::ShutDown;
+        self.socket_status.set(state.status());
+        self.state = Some(state);
 
         result
     }
@@ -156,6 +159,7 @@ impl Listener {
             }
             State::Connected(_) => channel::listener::State::WaitingToJoin,
             State::ShuttingDown => channel::listener::State::ShuttingDown,
+            State::ShutDown => channel::listener::State::ShutDown,
         };
 
         let connectivity_rx = self.connectivity_tx.subscribe();
@@ -196,6 +200,7 @@ impl Listener {
             ),
             State::Connected { .. } => (Ok(()), state),
             State::ShuttingDown => (Err(ConnectError::SocketShuttingDown), state),
+            State::ShutDown => (Err(ConnectError::SocketShutdown), state),
         };
 
         connect.connected_tx.send(connect_result).ok();
@@ -208,7 +213,8 @@ impl Listener {
             State::NeverConnected { .. }
             | State::WaitingToReconnect { .. }
             | State::Disconnected { .. }
-            | State::ShuttingDown => state,
+            | State::ShuttingDown
+            | State::ShutDown => state,
             State::Connected(mut connected) => {
                 if let Err(error) = connected.socket.close(None).await {
                     debug!("Web socket error while disconnecting: {}", error);
@@ -712,11 +718,18 @@ impl Listener {
             State::NeverConnected { .. }
             | State::WaitingToReconnect { .. }
             | State::Disconnected { .. }
-            | State::ShuttingDown => State::ShuttingDown,
+            | State::ShuttingDown
+            | State::ShutDown => State::ShuttingDown,
         }
     }
 }
 
+#[derive(EnumDiscriminants, EnumIs)]
+#[strum_discriminants(name(Status))]
+#[strum_discriminants(vis(pub))]
+#[strum_discriminants(derive(EnumIs))]
+#[strum_discriminants(repr(usize))]
+#[must_use]
 enum State {
     NeverConnected,
     Connected(Connected),
@@ -726,6 +739,7 @@ enum State {
     },
     Disconnected,
     ShuttingDown,
+    ShutDown,
 }
 impl State {
     pub fn status(&self) -> Status {
@@ -735,6 +749,7 @@ impl State {
             State::WaitingToReconnect { .. } => Status::WaitingToReconnect,
             State::Disconnected => Status::Disconnected,
             State::ShuttingDown => Status::ShuttingDown,
+            State::ShutDown => Status::ShutDown,
         }
     }
 }
@@ -755,9 +770,24 @@ impl Debug for State {
                 )
                 .field("reconnect", reconnect)
                 .finish(),
+            State::ShutDown => write!(f, "ShutDown"),
         }
     }
 }
+
+impl Default for Status {
+    fn default() -> Self {
+        Status::NeverConnected
+    }
+}
+impl From<Status> for usize {
+    fn from(status: Status) -> Self {
+        status as usize
+    }
+}
+
+pub(crate) type ObservableStatus =
+    crate::observable_status::ObservableStatus<Status, Arc<tungstenite::Error>>;
 
 #[must_use]
 struct Connected {
