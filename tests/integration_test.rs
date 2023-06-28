@@ -49,22 +49,22 @@ async fn socket_status() -> Result<(), Error> {
 
     let status = socket.status();
     assert_eq!(status, socket::Status::NeverConnected);
-    assert_eq!(status.is_never_connected(), true);
+    assert!(status.is_never_connected());
 
     socket.connect(CONNECT_TIMEOUT).await?;
     let status = socket.status();
     assert_eq!(status, socket::Status::Connected);
-    assert_eq!(status.is_connected(), true);
+    assert!(status.is_connected());
 
     socket.disconnect().await?;
     let status = socket.status();
     assert_eq!(status, socket::Status::Disconnected);
-    assert_eq!(status.is_disconnected(), true);
+    assert!(status.is_disconnected());
 
     socket.shutdown().await?;
     let status = socket.status();
     assert_eq!(status, socket::Status::ShutDown);
-    assert_eq!(status.is_shut_down(), true);
+    assert!(status.is_shut_down());
 
     Ok(())
 }
@@ -160,27 +160,27 @@ async fn channel_status() -> Result<(), Error> {
 
     let status = channel.status();
     assert_eq!(status, channel::Status::WaitingForSocketToConnect);
-    assert_eq!(status.is_waiting_for_socket_to_connect(), true);
+    assert!(status.is_waiting_for_socket_to_connect());
 
     socket.connect(CONNECT_TIMEOUT).await?;
     let status = channel.status();
     assert_eq!(status, channel::Status::WaitingToJoin);
-    assert_eq!(status.is_waiting_to_join(), true);
+    assert!(status.is_waiting_to_join());
 
     channel.join(JOIN_TIMEOUT).await?;
     let status = channel.status();
     assert_eq!(status, channel::Status::Joined);
-    assert_eq!(status.is_joined(), true);
+    assert!(status.is_joined());
 
     channel.leave().await?;
     let status = channel.status();
     assert_eq!(status, channel::Status::Left);
-    assert_eq!(status.is_left(), true);
+    assert!(status.is_left());
 
     channel.shutdown().await?;
     let status = channel.status();
     assert_eq!(status, channel::Status::ShutDown);
-    assert_eq!(status.is_shut_down(), true);
+    assert!(status.is_shut_down());
 
     Ok(())
 }
