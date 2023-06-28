@@ -20,11 +20,11 @@ use url::Url;
 use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::join_reference::JoinReference;
 use crate::message::*;
-pub use crate::socket::listener::ShutdownError;
 use crate::socket::listener::{
     ChannelSendCommand, ChannelSpawn, ChannelStateCommand, Connect, Join, Leave, Listener,
-    StateCommand,
+    ObservableStatus, StateCommand,
 };
+pub use crate::socket::listener::{ShutdownError, Status};
 use crate::topic::Topic;
 use crate::{channel, Channel, EventPayload};
 
@@ -109,30 +109,6 @@ impl Socket {
 
     pub fn url(&self) -> Arc<Url> {
         self.url.clone()
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.status() == Status::Connected
-    }
-
-    pub fn is_waiting_to_reconnect(&self) -> bool {
-        self.status() == Status::WaitingToReconnect
-    }
-
-    pub fn has_never_connected(&self) -> bool {
-        self.status() == Status::NeverConnected
-    }
-
-    pub fn is_disconnected(&self) -> bool {
-        self.status() == Status::Disconnected
-    }
-
-    pub fn is_shutting_down(&self) -> bool {
-        self.status() == Status::ShuttingDown
-    }
-
-    pub fn is_shutdown(&self) -> bool {
-        self.status() == Status::ShutDown
     }
 
     pub fn status(&self) -> Status {
@@ -421,25 +397,5 @@ impl From<oneshot::error::RecvError> for DisconnectError {
 impl From<mpsc::error::SendError<StateCommand>> for DisconnectError {
     fn from(_: mpsc::error::SendError<StateCommand>) -> Self {
         DisconnectError::SocketShutdown
-    }
-}
-
-type ObservableStatus = crate::observable_status::ObservableStatus<Status, Arc<tungstenite::Error>>;
-
-#[doc(hidden)]
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
-#[repr(usize)]
-pub enum Status {
-    #[default]
-    NeverConnected,
-    Connected,
-    WaitingToReconnect,
-    Disconnected,
-    ShuttingDown,
-    ShutDown,
-}
-impl From<Status> for usize {
-    fn from(status: Status) -> Self {
-        status as usize
     }
 }

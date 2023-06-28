@@ -47,20 +47,24 @@ async fn socket_status() -> Result<(), Error> {
     let url = shared_secret_url(id);
     let socket = Socket::spawn(url).await?;
 
-    assert_eq!(socket.status(), socket::Status::NeverConnected);
-    assert_eq!(socket.has_never_connected(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::NeverConnected);
+    assert!(status.is_never_connected());
 
     socket.connect(CONNECT_TIMEOUT).await?;
-    assert_eq!(socket.status(), socket::Status::Connected);
-    assert_eq!(socket.is_connected(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::Connected);
+    assert!(status.is_connected());
 
     socket.disconnect().await?;
-    assert_eq!(socket.status(), socket::Status::Disconnected);
-    assert_eq!(socket.is_disconnected(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::Disconnected);
+    assert!(status.is_disconnected());
 
     socket.shutdown().await?;
-    assert_eq!(socket.status(), socket::Status::ShutDown);
-    assert_eq!(socket.is_shutdown(), true);
+    let status = socket.status();
+    assert_eq!(status, socket::Status::ShutDown);
+    assert!(status.is_shut_down());
 
     Ok(())
 }
@@ -154,24 +158,29 @@ async fn channel_status() -> Result<(), Error> {
 
     let channel = socket.channel("channel:status", None).await?;
 
-    assert_eq!(channel.status(), channel::Status::WaitingForSocketToConnect);
-    assert_eq!(channel.is_waiting_for_socket_to_connect(), true);
+    let status = channel.status();
+    assert_eq!(status, channel::Status::WaitingForSocketToConnect);
+    assert!(status.is_waiting_for_socket_to_connect());
 
     socket.connect(CONNECT_TIMEOUT).await?;
-    assert_eq!(channel.status(), channel::Status::WaitingToJoin);
-    assert_eq!(channel.is_waiting_to_join(), true);
+    let status = channel.status();
+    assert_eq!(status, channel::Status::WaitingToJoin);
+    assert!(status.is_waiting_to_join());
 
     channel.join(JOIN_TIMEOUT).await?;
-    assert_eq!(channel.status(), channel::Status::Joined);
-    assert_eq!(channel.has_joined(), true);
+    let status = channel.status();
+    assert_eq!(status, channel::Status::Joined);
+    assert!(status.is_joined());
 
     channel.leave().await?;
-    assert_eq!(channel.status(), channel::Status::Left);
-    assert_eq!(channel.has_left(), true);
+    let status = channel.status();
+    assert_eq!(status, channel::Status::Left);
+    assert!(status.is_left());
 
     channel.shutdown().await?;
-    assert_eq!(channel.status(), channel::Status::ShutDown);
-    assert_eq!(channel.has_shut_down(), true);
+    let status = channel.status();
+    assert_eq!(status, channel::Status::ShutDown);
+    assert!(status.is_shut_down());
 
     Ok(())
 }
@@ -532,7 +541,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Re
     let topic = format!("channel:broadcast:{}", subtopic);
     let receiver_channel = receiver_client.channel(&topic, None).await?;
     receiver_channel.join(JOIN_TIMEOUT).await?;
-    assert!(receiver_channel.has_joined());
+    assert!(receiver_channel.status().is_joined());
 
     const EVENT: &'static str = "broadcast";
     let sent_payload = payload;
@@ -563,7 +572,7 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Re
 
     let sender_channel = sender_client.channel(&topic, None).await?;
     sender_channel.join(JOIN_TIMEOUT).await?;
-    assert!(sender_channel.has_joined());
+    assert!(sender_channel.status().is_joined());
 
     sender_channel.cast(EVENT, sent_payload).await?;
 
@@ -602,7 +611,7 @@ async fn phoenix_channels_call_reply_ok_without_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.has_joined());
+    assert!(channel.status().is_joined());
 
     assert_eq!(
         channel
@@ -643,7 +652,7 @@ async fn phoenix_channels_call_reply_error_without_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.has_joined());
+    assert!(channel.status().is_joined());
 
     match channel.call("reply_error", payload, CALL_TIMEOUT).await {
         Err(CallError::Reply(payload)) => assert_eq!(payload, json!({}).into()),
@@ -680,7 +689,7 @@ async fn phoenix_channels_call_reply_ok_with_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.has_joined());
+    assert!(channel.status().is_joined());
 
     match channel
         .call("reply_ok_tuple", payload.clone(), CALL_TIMEOUT)
@@ -726,7 +735,7 @@ async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
     let topic = format!("channel:call:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.has_joined());
+    assert!(channel.status().is_joined());
 
     match channel
         .call("reply_error_tuple", payload.clone(), CALL_TIMEOUT)
@@ -766,7 +775,7 @@ async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) -> R
     let topic = format!("channel:raise:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.has_joined());
+    assert!(channel.status().is_joined());
 
     let send_error = channel
         .call("raise", payload.clone(), CALL_TIMEOUT)
@@ -802,7 +811,7 @@ async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) -> R
     let topic = format!("channel:raise:{}", subtopic);
     let channel = socket.channel(&topic, None).await?;
     channel.join(JOIN_TIMEOUT).await?;
-    assert!(channel.has_joined());
+    assert!(channel.status().is_joined());
 
     let result = channel.cast("raise", payload.clone()).await;
 

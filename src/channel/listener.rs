@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use log::debug;
+use strum_macros::{EnumDiscriminants, EnumIs};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, Sleep};
@@ -13,7 +14,7 @@ use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::http::Response;
 
-use crate::channel::{EventPayload, ObservableStatus, Status};
+use crate::channel::EventPayload;
 use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Push};
 use crate::socket::listener::{Connectivity, Disconnected};
@@ -176,7 +177,7 @@ impl Listener {
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await?,
                     else => break Ok(())
                 },
-                State::ShuttingDown => break Ok(()),
+                State::ShuttingDown | State::ShutDown => break Ok(()),
             };
 
             self.channel_status.set(next_state.status());
@@ -190,7 +191,9 @@ impl Listener {
             self.state = Some(next_state);
         };
 
-        self.channel_status.set(Status::ShutDown);
+        let state = State::ShutDown;
+        self.channel_status.set(state.status());
+        self.state = Some(state);
 
         result
     }
@@ -243,7 +246,7 @@ impl Listener {
 
                 Ok(state)
             }
-            State::ShuttingDown => {
+            State::ShuttingDown | State::ShutDown => {
                 channel_joined_tx.send(Err(JoinError::ShuttingDown)).ok();
 
                 Ok(state)
@@ -384,7 +387,8 @@ impl Listener {
             | State::WaitingToRejoin { .. }
             | State::Joined { .. }
             | State::Left { .. }
-            | State::ShuttingDown => {}
+            | State::ShuttingDown
+            | State::ShutDown => {}
             State::Joining(Joining {
                 channel_joined_txs, ..
             }) => {
@@ -408,7 +412,8 @@ impl Listener {
             State::WaitingForSocketToConnect { .. }
             | State::WaitingToJoin { .. }
             | State::Left { .. }
-            | State::ShuttingDown => {
+            | State::ShuttingDown
+            | State::ShutDown => {
                 left_tx.send(Ok(())).ok();
 
                 state
@@ -577,6 +582,11 @@ pub(crate) struct Call {
     pub reply_tx: oneshot::Sender<Result<Payload, channel::CallError>>,
 }
 
+#[derive(EnumDiscriminants, EnumIs)]
+#[strum_discriminants(name(Status))]
+#[strum_discriminants(vis(pub))]
+#[strum_discriminants(derive(EnumIs))]
+#[strum_discriminants(repr(usize))]
 #[must_use]
 pub(crate) enum State {
     WaitingForSocketToConnect {
@@ -592,6 +602,7 @@ pub(crate) enum State {
     Leaving(Leaving),
     Left,
     ShuttingDown,
+    ShutDown,
 }
 impl State {
     pub fn status(&self) -> Status {
@@ -604,6 +615,7 @@ impl State {
             State::Leaving { .. } => Status::Leaving,
             State::Left => Status::Left,
             State::ShuttingDown => Status::ShuttingDown,
+            State::ShutDown => Status::ShutDown,
         }
     }
 
@@ -698,7 +710,7 @@ impl State {
                     },
                 }
             }
-            State::ShuttingDown => self,
+            State::ShuttingDown | State::ShutDown => self,
         };
 
         debug!("{}{:#?}", prefix, next_state);
@@ -713,7 +725,8 @@ impl State {
             | State::WaitingToRejoin { .. }
             | State::Joined(_)
             | State::Left { .. }
-            | State::ShuttingDown => (),
+            | State::ShuttingDown
+            | State::ShutDown => (),
             State::Joining(Joining {
                 channel_joined_txs, ..
             }) => {
@@ -759,9 +772,17 @@ impl Debug for State {
             State::Leaving { .. } => f.debug_struct("Leaving").finish_non_exhaustive(),
             State::Left { .. } => f.write_str("Left"),
             State::ShuttingDown => f.write_str("ShuttingDown"),
+            State::ShutDown => f.write_str("ShutDown"),
         }
     }
 }
+impl From<Status> for usize {
+    fn from(status: Status) -> Self {
+        status as Self
+    }
+}
+
+pub type ObservableStatus = crate::observable_status::ObservableStatus<Status, Payload>;
 
 #[doc(hidden)]
 #[derive(Debug)]
