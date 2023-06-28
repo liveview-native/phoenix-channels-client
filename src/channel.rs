@@ -18,8 +18,9 @@ use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::http::Response;
 
+pub use crate::channel::listener::Status;
 pub(crate) use crate::channel::listener::{Call, LeaveError, ShutdownError};
-use crate::channel::listener::{Listener, SendCommand, StateCommand};
+use crate::channel::listener::{Listener, ObservableStatus, SendCommand, StateCommand};
 use crate::message::*;
 use crate::socket;
 use crate::socket::listener::Connectivity;
@@ -38,27 +39,6 @@ pub enum Error {
     Leave(#[from] LeaveError),
     #[error(transparent)]
     Shutdown(#[from] ShutdownError),
-}
-
-#[doc(hidden)]
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
-#[repr(u32)]
-pub enum Status {
-    #[default]
-    WaitingForSocketToConnect,
-    WaitingToJoin,
-    Joining,
-    WaitingToRejoin,
-    Joined,
-    Leaving,
-    Left,
-    ShuttingDown,
-    ShutDown,
-}
-impl From<Status> for usize {
-    fn from(status: Status) -> Self {
-        status as usize
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -170,44 +150,6 @@ impl Channel {
         self.payload.clone()
     }
 
-    pub fn is_waiting_for_socket_to_connect(&self) -> bool {
-        self.status() == Status::WaitingForSocketToConnect
-    }
-
-    pub fn is_waiting_to_join(&self) -> bool {
-        self.status() == Status::WaitingToJoin
-    }
-
-    pub fn is_joining(&self) -> bool {
-        self.status() == Status::Joining
-    }
-
-    pub fn is_waiting_to_rejoin(&self) -> bool {
-        self.status() == Status::WaitingToRejoin
-    }
-
-    /// Returns true if this channel is currently joined to its topic
-    pub fn has_joined(&self) -> bool {
-        self.status() == Status::Joined
-    }
-
-    /// Returns true if this channel is currently leaving its topic
-    pub fn is_leaving(&self) -> bool {
-        self.status() == Status::Leaving
-    }
-
-    pub fn has_left(&self) -> bool {
-        self.status() == Status::Left
-    }
-
-    pub fn is_shutting_down(&self) -> bool {
-        self.status() == Status::ShuttingDown
-    }
-
-    pub fn has_shut_down(&self) -> bool {
-        self.status() == Status::ShutDown
-    }
-
     pub fn status(&self) -> Status {
         self.status.get()
     }
@@ -314,8 +256,6 @@ impl Channel {
         }
     }
 }
-
-type ObservableStatus = crate::observable_status::ObservableStatus<Status, Payload>;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum JoinError {

@@ -1,6 +1,6 @@
 [package]
 name = "phoenix_channels_client"
-version = "0.6.0"
+version = "0.7.0"
 rust-version = "1.64"
 authors = ["Paul Schoenfelder <paulschoenfelder@gmail.com>", "Elle Imhoff <Kronic.Deth@gmail.com>"]
 description = "Provides an async-ready client for Phoenix Channels in Rust"
@@ -22,12 +22,13 @@ native-tls = ["tokio-tungstenite/native-tls"]
 [dependencies]
 atomic-take = "1.1.0"
 bytes = "1.4.0"
-fxhash = "0.2"
 flexstr = { version = "0.9.2", features = ["serde"] }
 futures = "0.3"
+fxhash = "0.2"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+strum_macros = "0.25.0"
 thiserror = "1.0"
 tokio = { version = "1.21", features = ["full", "tracing", "test-util"] }
 tokio-tungstenite = "0.17"

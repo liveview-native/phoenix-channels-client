@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 #[derive(Clone)]
-pub(crate) struct ObservableStatus<S: Copy + Into<usize>, E: Clone> {
+pub struct ObservableStatus<S: Copy + Into<usize>, E: Clone> {
     status: Arc<AtomicUsize>,
     tx: broadcast::Sender<Result<S, E>>,
 }
