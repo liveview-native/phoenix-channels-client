@@ -6,10 +6,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding as tungstenite_codin
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::OpCode], but with `uniffi` support
 /// WebSocket message opcode as in RFC 6455.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TungsteniteOpCode {
     /// Data (text or binary).
     Data { data: TungsteniteData },
@@ -30,10 +27,7 @@ impl From<&tungstenite_coding::OpCode> for TungsteniteOpCode {
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::Data], but with `uniffi` support.
 /// Data opcodes as in RFC 6455
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TungsteniteData {
     /// 0x0 denotes a continuation frame
     Continue,
@@ -68,10 +62,7 @@ impl From<&tungstenite_coding::Data> for TungsteniteData {
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::Control], but with `uniffi` support.
 /// Control opcodes as in RFC 6455
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TungsteniteControl {
     /// 0x8 denotes a connection close
     Close,
@@ -96,10 +87,7 @@ impl From<&tungstenite_coding::Control> for TungsteniteControl {
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode], but with `uniffi::support`
 /// Status code used to indicate why an endpoint is closing the WebSocket connection.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TungsteniteCloseCode {
     /// Indicates a normal closure, meaning that the purpose for
     /// which the connection was established has been fulfilled.
@@ -160,10 +148,18 @@ pub enum TungsteniteCloseCode {
     /// when a user has performed an action.
     Again,
     Tls,
-    Reserved { code: u16 },
-    Iana { code: u16 },
-    Library { code: u16 },
-    Bad { code: u16 },
+    Reserved {
+        code: u16,
+    },
+    Iana {
+        code: u16,
+    },
+    Library {
+        code: u16,
+    },
+    Bad {
+        code: u16,
+    },
 }
 impl From<&tungstenite_coding::CloseCode> for TungsteniteCloseCode {
     fn from(rust_close_code: &tungstenite_coding::CloseCode) -> Self {

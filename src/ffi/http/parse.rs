@@ -1,10 +1,7 @@
 /// [httparse::Error], but with `uniffi` support
 /// An error in parsing.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum HTTParseError {
     /// Invalid byte in header name.
     #[error("invalid header name")]

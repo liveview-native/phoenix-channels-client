@@ -8,10 +8,7 @@ use crate::ChannelStatus;
 
 /// Waits for [ChannelStatus] changes from the [Channel](crate::Channel).
 // Can't be generic because `uniffi` does not support generics
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Object)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct ChannelStatuses(
     observable_status::Statuses<rust::channel::Status, Arc<rust::message::Payload>>,
 );
@@ -45,10 +42,7 @@ impl From<observable_status::Statuses<rust::channel::Status, Arc<rust::message::
 
 /// Errors when calling [Channel::join](super::Channel::join).
 #[derive(Clone, Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum ChannelStatusJoinError {
     /// The [Channel::payload](super::Channel::payload) was rejected when attempting to
     /// [Channel::join](super::Channel::join) or automatically rejoin

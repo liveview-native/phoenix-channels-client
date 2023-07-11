@@ -11,10 +11,7 @@ use crate::rust;
 /// different semantics. Generally speaking, Phoenix events are not exposed to users, and are not
 /// permitted to be sent by them either.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum Event {
     /// Represents one of the built-in Phoenix channel events, e.g. join
     Phoenix {
@@ -55,10 +52,7 @@ impl From<rust::message::Event> for Event {
 
 /// Represents special events related to management of Phoenix channels.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum PhoenixEvent {
     /// Used when sending a message to join a channel
     Join = 0,
@@ -103,10 +97,7 @@ impl FromStr for PhoenixEvent {
 
 /// Contains the response payload sent to/received from Phoenix
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum Payload {
     /// A JSON payload
     JSON {

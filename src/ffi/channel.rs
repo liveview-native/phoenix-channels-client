@@ -217,6 +217,7 @@ use tokio::time::Instant;
 
 use crate::ffi::channel::statuses::ChannelStatuses;
 use crate::ffi::message::{Event, Payload};
+use crate::ffi::presences::Presences;
 use crate::ffi::socket::SocketShutdownError;
 use crate::ffi::topic::Topic;
 use crate::ffi::web_socket::error::WebSocketError;
@@ -229,10 +230,7 @@ pub mod statuses;
 
 /// Errors returned by [Channel] functions.
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum ChannelError {
     /// Errors when calling [Channel::join].
     #[error(transparent)]
@@ -280,10 +278,7 @@ pub enum ChannelError {
 /// * [Channel::call] to send a message and await a reply from the server
 /// * [Channel::cast] to send a message and ignore any replies
 ///
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Object)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Channel {
     pub(crate) topic: Arc<Topic>,
     pub(crate) payload: crate::rust::message::Payload,
@@ -297,10 +292,7 @@ pub struct Channel {
     pub(crate) join_handle: AtomicTake<JoinHandle<Result<(), ChannelShutdownError>>>,
 }
 
-#[cfg_attr(
-    feature = "uniffi",
-    uniffi::export
-)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Channel {
     /// Join [Channel::topic] with [Channel::payload] within `timeout`.
     pub async fn join(&self, timeout: Duration) -> Result<(), ChannelJoinError> {
@@ -416,6 +408,11 @@ impl Channel {
         }
     }
 
+    /// Creates a [Presences] for the channel
+    pub async fn presences(self: &Arc<Self>) -> Arc<Presences> {
+        Arc::new(Presences::spawn(self.clone()).await)
+    }
+
     /// Leaves this channel
     pub async fn leave(&self) -> Result<(), LeaveError> {
         let (left_tx, left_rx) = oneshot::channel();
@@ -456,10 +453,7 @@ impl Channel {
 
 /// Errors when calling [Channel::join].
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum ChannelJoinError {
     /// Timeout joining channel
     #[error("timeout joining channel")]
@@ -535,10 +529,7 @@ impl From<ChannelShutdownError> for ChannelJoinError {
 /// The [EventPayload::event] sent by the server along with the [EventPayload::payload] for that
 /// [EventPayload::event].
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Record)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct EventPayload {
     /// The [Event] name.
     pub event: Event,
@@ -557,15 +548,9 @@ impl From<rust::message::EventPayload> for EventPayload {
 }
 
 /// Waits for [EventPayload]s sent from the server.
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Object)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Events(Mutex<broadcast::Receiver<rust::message::EventPayload>>);
-#[cfg_attr(
-    feature = "uniffi",
-    uniffi::export
-)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Events {
     /// Wait for next [EventPayload] sent from the server.
     pub async fn event(&self) -> Result<EventPayload, EventsError> {
@@ -587,10 +572,7 @@ impl From<broadcast::Receiver<rust::message::EventPayload>> for Events {
 /// Errors when calling [Events::event].
 // Wraps [tokio::sync::broadcast::error::RecvError] to add `uniffi` support and names specific to [Events]
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum EventsError {
     /// There are no more events because the [Channel] shutdown.
     #[error("No more events left")]
@@ -635,10 +617,7 @@ impl From<Elapsed> for ChannelJoinError {
 
 /// Errors when calling [Channel::cast].
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum CastError {
     /// The async task for the [Channel] was already joined by another call, so the [Result] or
     /// panic from the async task can't be reported here.
@@ -671,10 +650,7 @@ impl From<ChannelShutdownError> for CastError {
 
 /// Errors when calling [Channel::call].
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum CallError {
     /// The async task for the [Channel] was already joined by another call, so the [Result] or
     /// panic from the async task can't be reported here.
@@ -744,10 +720,7 @@ impl From<rust::channel::CallError> for CallError {
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum LeaveError {
     #[error("timeout joining channel")]
     Timeout,
@@ -813,10 +786,7 @@ impl From<rust::channel::LeaveError> for LeaveError {
 
 /// The status of the [Channel].
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ChannelStatus {
     /// [Channel] is waiting for the [Socket](crate::Socket) to
     /// [Socket::connect](crate::Socket::connect) or automatically reconnect.
@@ -864,10 +834,7 @@ impl From<rust::channel::Status> for ChannelStatus {
 }
 
 #[derive(Copy, Clone, Debug, thiserror::Error, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum ChannelShutdownError {
     #[error("socket already shutdown")]
     SocketShutdown,

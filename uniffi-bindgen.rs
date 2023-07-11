@@ -3,5 +3,4 @@ fn main() {
     panic!("uniffi feature required for uniffi-bindgen");
     #[cfg(feature = "uniffi")]
     uniffi::uniffi_bindgen_main()
-
 }

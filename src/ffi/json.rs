@@ -6,10 +6,7 @@ use crate::ffi::io::error::IoError;
 
 /// Replicates [serde_json::value::Value], but with `uniffi` support.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum JSON {
     /// JSON `null`
     Null,
@@ -121,10 +118,7 @@ impl From<&serde_json::Value> for JSON {
 
 /// Replicates [serde_json::number::Number] and [serde_json::number::N], but with `uniffi` support.
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum Number {
     PosInt { pos: u64 },
     NegInt { neg: i64 },
@@ -168,10 +162,7 @@ impl From<&serde_json::Number> for Number {
 
 /// Error from [JSON::deserialize]
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum JSONDeserializationError {
     /// There was error reading from the underlying IO device after reading `column` of `line`.
     #[error("IO error on line {line} column {column}: {io_error}")]

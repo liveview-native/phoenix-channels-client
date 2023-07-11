@@ -13,10 +13,7 @@ use tokio_tungstenite::tungstenite::http::{
 
 /// [http::error::Error], but with `uniffi` support
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum HttpError {
     #[error("invalid status code")]
     StatusCode,
@@ -65,10 +62,7 @@ impl From<&TungsteniteError> for HttpError {
 }
 
 #[derive(Copy, Clone, Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum InvalidUri {
     #[error("invalid uri character")]
     InvalidUriChar,
@@ -96,10 +90,7 @@ pub enum InvalidUri {
 
 /// [http::response::Response], but without the generics that `uniffi` does not support and with `uniffi` support
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Record)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Response {
     pub status_code: u16,
     pub headers: HashMap<String, Vec<String>>,

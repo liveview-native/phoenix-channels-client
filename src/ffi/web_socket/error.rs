@@ -10,10 +10,7 @@ use crate::ffi::web_socket::protocol::WebSocketMessage;
 
 /// [tokio_tungstenite::tungstenite::error::Error], but with `uniffi` support
 #[derive(Clone, Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum WebSocketError {
     /// WebSocket connection closed normally. This informs you of the close.
     /// It's not an error as such and nothing wrong happened.
@@ -135,10 +132,7 @@ impl From<&TungsteniteError> for WebSocketError {
 /// [tungstenite::error::CapacityError], but with `uniffi` support.
 /// Indicates the specific type/cause of a capacity error.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum CapacityError {
     /// Too many headers provided (see [`httparse::Error::TooManyHeaders`]).
     #[error("Too many headers")]
@@ -168,10 +162,7 @@ impl From<&TungsteniteCapacityError> for CapacityError {
 /// [tokio_tungstenite::tungstenite::error::ProtocolError], but with `uniffi` support.
 /// Indicates the specific type/cause of a protocol error.
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum ProtocolError {
     /// Use of the wrong HTTP method (the WebSocket protocol requires the GET method be used).
     #[error("Unsupported HTTP method used - only GET is allowed")]

@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// A [Channel](crate::Channel) topic.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Object)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Topic(String);
 
 #[cfg(feature = "uniffi")]
@@ -27,7 +24,6 @@ impl Topic {
         Arc::new(Topic(topic))
     }
 }
-
 
 impl Debug for Topic {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
