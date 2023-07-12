@@ -13,7 +13,7 @@ use cases already. The following is a list of known missing features:
 
 ## About
 
-This client was built to support its use in the [LiveView Native core library](https://github.com/liveviewnative/liveview-native-core), 
+This client was built to support its use in the [LiveView Native core library](https://github.com/liveview-native/liveview-native-core), 
 which is also implemented in Rust.
 
 The client is implemented on top of `tokio`, and is designed for the Rust async ecosystem, though it is possible to use the
