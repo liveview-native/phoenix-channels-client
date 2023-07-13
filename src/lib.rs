@@ -12,12 +12,13 @@ mod topic;
 
 pub use serde_json::Value;
 use thiserror::Error;
-use tokio::sync::broadcast;
-use tokio::time::error::Elapsed;
+use tokio::{sync::broadcast, time::error::Elapsed};
 
-pub use self::channel::*;
-pub use self::message::{Event, Payload, PhoenixEvent};
-pub use self::socket::{ConnectError, Socket, SpawnError};
+pub use self::{
+    channel::*,
+    message::{Event, Payload, PhoenixEvent},
+    socket::{ConnectError, Socket, SpawnError},
+};
 
 #[derive(Error, Debug)]
 pub enum Error {

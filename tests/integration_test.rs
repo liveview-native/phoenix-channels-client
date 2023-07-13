@@ -3,23 +3,21 @@
 
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
-use std::io::ErrorKind;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{io::ErrorKind, sync::Arc, time::Duration};
 
 use log::debug;
+use phoenix_channels_client::{
+    channel, socket, CallError, ConnectError, Error, Event, EventPayload, JoinError, Payload,
+    Socket,
+};
 use serde_json::{json, Value};
-use tokio::time;
-use tokio::time::{timeout, Instant};
-use tokio_tungstenite::tungstenite;
-use tokio_tungstenite::tungstenite::http::StatusCode;
+use tokio::{
+    time,
+    time::{timeout, Instant},
+};
+use tokio_tungstenite::{tungstenite, tungstenite::http::StatusCode};
 use url::Url;
 use uuid::Uuid;
-
-use phoenix_channels_client::Error;
-use phoenix_channels_client::{
-    channel, socket, CallError, ConnectError, Event, EventPayload, JoinError, Payload, Socket,
-};
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! assert_matches {
@@ -316,9 +314,10 @@ async fn phoenix_channels_socket_key_rotation_test() -> Result<(), Error> {
 
     let Payload::Value(value) = generate_secret_channel
         .call("generate_secret", json!({}), CALL_TIMEOUT)
-        .await? else {
-            panic!("secret not returned")
-        };
+        .await?
+    else {
+        panic!("secret not returned")
+    };
 
     let secret = if let Value::String(ref secret) = *value {
         secret.to_owned()

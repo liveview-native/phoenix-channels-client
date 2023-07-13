@@ -1,31 +1,31 @@
 pub(crate) mod listener;
 
-use atomic_take::AtomicTake;
-use std::panic;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{panic, sync::Arc, time::Duration};
 
+use atomic_take::AtomicTake;
 use flexstr::SharedStr;
 use log::{debug, error};
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::task::JoinHandle;
-use tokio::time;
-use tokio::time::error::Elapsed;
-use tokio::time::Instant;
-use tokio_tungstenite::tungstenite;
-use tokio_tungstenite::tungstenite::error::UrlError;
-use tokio_tungstenite::tungstenite::http;
-use tokio_tungstenite::tungstenite::http::Response;
+use tokio::{
+    sync::{broadcast, mpsc, oneshot},
+    task::JoinHandle,
+    time,
+    time::{error::Elapsed, Instant},
+};
+use tokio_tungstenite::{
+    tungstenite,
+    tungstenite::{error::UrlError, http, http::Response},
+};
 
 pub use crate::channel::listener::Status;
 pub(crate) use crate::channel::listener::{Call, LeaveError, ShutdownError};
-use crate::channel::listener::{Listener, ObservableStatus, SendCommand, StateCommand};
-use crate::message::*;
-use crate::socket;
-use crate::socket::listener::Connectivity;
-use crate::socket::Socket;
-use crate::topic::Topic;
+use crate::{
+    channel::listener::{Listener, ObservableStatus, SendCommand, StateCommand},
+    message::*,
+    socket,
+    socket::{listener::Connectivity, Socket},
+    topic::Topic,
+};
 
 #[derive(Error, Debug)]
 pub enum Error {
