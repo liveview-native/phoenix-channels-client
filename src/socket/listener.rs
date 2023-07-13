@@ -1,39 +1,44 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::hash::Hash;
-use std::mem;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::{Debug, Formatter},
+    future::Future,
+    hash::Hash,
+    mem,
+    pin::Pin,
+    sync::Arc,
+    time::Duration,
+};
 
 use flexstr::SharedStr;
-use futures::stream::FuturesUnordered;
-use futures::SinkExt;
-use futures::StreamExt;
+use futures::{stream::FuturesUnordered, SinkExt, StreamExt};
 use log::{debug, error};
 use serde_json::Value;
 use strum_macros::{EnumDiscriminants, EnumIs};
-use tokio::net::TcpStream;
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::task::JoinHandle;
-use tokio::time;
-use tokio::time::{Instant, Interval, Sleep};
-use tokio_tungstenite::tungstenite::error::UrlError;
-use tokio_tungstenite::tungstenite::http;
-use tokio_tungstenite::tungstenite::http::Response;
-use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
+use tokio::{
+    net::TcpStream,
+    sync::{broadcast, mpsc, oneshot},
+    task::JoinHandle,
+    time,
+    time::{Instant, Interval, Sleep},
+};
+use tokio_tungstenite::{
+    tungstenite,
+    tungstenite::{error::UrlError, http, http::Response},
+    MaybeTlsStream, WebSocketStream,
+};
 use url::Url;
 
-use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
-use crate::join_reference::JoinReference;
-use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
-use crate::reference::Reference;
-use crate::socket::ConnectError;
-use crate::topic::Topic;
-use crate::{channel, socket, CallError, Channel, EventPayload, Socket};
-use crate::{Event, Payload, PhoenixEvent};
+use crate::{
+    channel,
+    channel::listener::{JoinedChannelReceivers, LeaveError},
+    join_reference::JoinReference,
+    message::{Broadcast, Control, Message, Push, Reply, ReplyStatus},
+    reference::Reference,
+    socket,
+    socket::ConnectError,
+    topic::Topic,
+    CallError, Channel, Event, EventPayload, Payload, PhoenixEvent, Socket,
+};
 
 pub(super) struct Listener {
     url: Arc<Url>,
@@ -924,18 +929,25 @@ impl Connected {
     ) -> Option<oneshot::Sender<Result<Payload, channel::CallError>>> {
         let Entry::Occupied(mut reply_tx_by_reference_by_join_reference_entry) = self
             .reply_tx_by_reference_by_join_reference_by_topic
-            .entry(topic.clone()) else { return None };
+            .entry(topic.clone())
+        else {
+            return None;
+        };
 
         let reply_tx_by_reference_by_join_reference =
             reply_tx_by_reference_by_join_reference_entry.get_mut();
 
         let Entry::Occupied(mut reply_tx_by_reference_entry) =
             reply_tx_by_reference_by_join_reference.entry(join_reference)
-        else { return None };
+        else {
+            return None;
+        };
 
         let reply_tx_by_reference = reply_tx_by_reference_entry.get_mut();
 
-        let Entry::Occupied(reply_tx_entry) = reply_tx_by_reference.entry(reference) else { return None };
+        let Entry::Occupied(reply_tx_entry) = reply_tx_by_reference.entry(reference) else {
+            return None;
+        };
         let reply_tx = reply_tx_entry.remove();
 
         if reply_tx_by_reference.is_empty() {

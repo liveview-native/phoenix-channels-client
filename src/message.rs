@@ -1,17 +1,15 @@
-use std::fmt;
-use std::mem;
-use std::str::{self, FromStr};
-use std::sync::Arc;
+use std::{
+    fmt, mem,
+    str::{self, FromStr},
+    sync::Arc,
+};
 
 use bytes::{BufMut, Bytes};
 use flexstr::SharedStr;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message as SocketMessage;
 
-use crate::join_reference::JoinReference;
-use crate::reference::Reference;
-use crate::topic::Topic;
-use crate::EventPayload;
+use crate::{join_reference::JoinReference, reference::Reference, topic::Topic, EventPayload};
 
 /// Occurs when decoding messages received from the server
 #[doc(hidden)]
@@ -832,8 +830,9 @@ impl FromStr for PhoenixEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn message_encode_with_control_with_binary_payload() {

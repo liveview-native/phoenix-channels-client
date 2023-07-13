@@ -1,25 +1,33 @@
-use std::fmt::{Debug, Formatter};
-use std::mem;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    fmt::{Debug, Formatter},
+    mem,
+    pin::Pin,
+    sync::Arc,
+    time::Duration,
+};
 
 use log::debug;
 use strum_macros::{EnumDiscriminants, EnumIs};
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::task::JoinHandle;
-use tokio::time::{Instant, Sleep};
-use tokio_tungstenite::tungstenite;
-use tokio_tungstenite::tungstenite::error::UrlError;
-use tokio_tungstenite::tungstenite::http;
-use tokio_tungstenite::tungstenite::http::Response;
+use tokio::{
+    sync::{broadcast, mpsc, oneshot},
+    task::JoinHandle,
+    time::{Instant, Sleep},
+};
+use tokio_tungstenite::{
+    tungstenite,
+    tungstenite::{error::UrlError, http, http::Response},
+};
 
-use crate::channel::EventPayload;
-use crate::join_reference::JoinReference;
-use crate::message::{Broadcast, Push};
-use crate::socket::listener::{Connectivity, Disconnected};
-use crate::topic::Topic;
-use crate::{channel, socket, JoinError, Payload, Socket};
+use crate::{
+    channel,
+    channel::EventPayload,
+    join_reference::JoinReference,
+    message::{Broadcast, Push},
+    socket,
+    socket::listener::{Connectivity, Disconnected},
+    topic::Topic,
+    JoinError, Payload, Socket,
+};
 
 pub(super) struct Listener {
     socket: Arc<Socket>,
