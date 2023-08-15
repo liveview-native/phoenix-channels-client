@@ -1,0 +1,45 @@
+name: linux
+
+on: push
+
+env:
+  RUSTDOCFLAGS: "-D warnings"
+  TOOLCHAIN: nightly
+  CARGO_TERM_COLOR: always
+
+jobs:
+  docs:
+    # rust cross-compilation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          default: true
+      - name: Cache Cargo
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_NDK_REV }}-${{ env.CARGO_TAI_REV }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache target
+        id: cache-target
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-target
+        with:
+          path: target
+          key: ${{ github.workflow }}-${{ github.job }}-${{ env.cache-name }}-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_NDK_REV }}-${{ env.CARGO_TAI_REV }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build phoenix_channels_client
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      - name: Generate docs for phoenix_channel_clients
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
