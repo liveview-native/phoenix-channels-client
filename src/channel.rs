@@ -236,7 +236,7 @@ impl Channel {
         }
     }
 
-    /// Propagates panic from [Listener::listen]
+    /// Propagates panic from async task.
     pub async fn shutdown(&self) -> Result<(), ShutdownError> {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             shutdown_tx.send(()).ok();
@@ -245,7 +245,7 @@ impl Channel {
         self.listener_shutdown().await
     }
 
-    /// Propagates panic from [Listener::listen]
+    /// Propagates panic from async task.
     async fn listener_shutdown(&self) -> Result<(), ShutdownError> {
         match self.join_handle.take() {
             Some(join_handle) => match join_handle.await {

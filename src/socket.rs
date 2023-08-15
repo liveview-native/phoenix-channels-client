@@ -52,7 +52,7 @@ const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 /// Once connected, a worker task is spawned that acts as the broker for messages being sent or
 /// received over the socket.
 ///
-/// Once connected, the more useful [`Channel`] instance can be obtained via [`Self::join`]. Most functionality
+/// Once connected, the more useful [`Channel`] instance can be obtained via [`Self::channel`]. Most functionality
 /// related to channels is exposed there.
 pub struct Socket {
     url: Arc<Url>,
@@ -158,7 +158,7 @@ impl Socket {
         disconnected_rx.await.map_err(From::from)
     }
 
-    /// Propagates panic from [Listener::listen]
+    /// Propagates panic from async task.
     pub async fn shutdown(&self) -> Result<(), ShutdownError> {
         self.state_command_tx
             .send(StateCommand::Shutdown)
