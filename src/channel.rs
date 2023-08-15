@@ -68,8 +68,8 @@ impl From<Push> for EventPayload {
 // /// You have two ways o done at that point.
 ///f sending messages to the channel:
 ///
-/// * [Channel::send]/[Channel::cast], to send a message and await a reply from the server
-/// * [Channel::cast], to send a message and ignore any replies
+/// * [Channel::call] to send a message and await a reply from the server
+/// * [Channel::cast] to send a message and ignore any replies
 ///
 pub struct Channel {
     topic: Topic,
