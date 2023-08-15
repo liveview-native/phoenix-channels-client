@@ -316,9 +316,10 @@ async fn phoenix_channels_socket_key_rotation_test() -> Result<(), Error> {
 
     let Payload::Value(value) = generate_secret_channel
         .call("generate_secret", json!({}), CALL_TIMEOUT)
-        .await? else {
-            panic!("secret not returned")
-        };
+        .await?
+    else {
+        panic!("secret not returned")
+    };
 
     let secret = if let Value::String(ref secret) = *value {
         secret.to_owned()

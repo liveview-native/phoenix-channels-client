@@ -924,18 +924,25 @@ impl Connected {
     ) -> Option<oneshot::Sender<Result<Payload, channel::CallError>>> {
         let Entry::Occupied(mut reply_tx_by_reference_by_join_reference_entry) = self
             .reply_tx_by_reference_by_join_reference_by_topic
-            .entry(topic.clone()) else { return None };
+            .entry(topic.clone())
+        else {
+            return None;
+        };
 
         let reply_tx_by_reference_by_join_reference =
             reply_tx_by_reference_by_join_reference_entry.get_mut();
 
         let Entry::Occupied(mut reply_tx_by_reference_entry) =
             reply_tx_by_reference_by_join_reference.entry(join_reference)
-        else { return None };
+        else {
+            return None;
+        };
 
         let reply_tx_by_reference = reply_tx_by_reference_entry.get_mut();
 
-        let Entry::Occupied(reply_tx_entry) = reply_tx_by_reference.entry(reference) else { return None };
+        let Entry::Occupied(reply_tx_entry) = reply_tx_by_reference.entry(reference) else {
+            return None;
+        };
         let reply_tx = reply_tx_entry.remove();
 
         if reply_tx_by_reference.is_empty() {
