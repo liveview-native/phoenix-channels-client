@@ -319,7 +319,9 @@ impl Listener {
             Err(socket_join_error) => match socket_join_error {
                 socket::JoinError::Shutdown => (Err(JoinError::ShuttingDown), State::ShuttingDown),
                 socket::JoinError::Rejected(payload) => {
-                    (Err(JoinError::Rejected(payload)), State::Left)
+                    let arc_payload = Arc::new(payload);
+                    self.channel_status.error(arc_payload.clone());
+                    (Err(JoinError::Rejected(arc_payload)), rejoin.wait())
                 }
                 socket::JoinError::Disconnected => {
                     (Err(JoinError::SocketDisconnected), rejoin.wait())
@@ -782,7 +784,7 @@ impl From<Status> for usize {
     }
 }
 
-pub type ObservableStatus = crate::observable_status::ObservableStatus<Status, Payload>;
+pub type ObservableStatus = crate::observable_status::ObservableStatus<Status, Arc<Payload>>;
 
 #[doc(hidden)]
 #[derive(Debug)]

@@ -154,7 +154,7 @@ impl Channel {
         self.status.get()
     }
 
-    pub fn statuses(&self) -> broadcast::Receiver<Result<Status, Payload>> {
+    pub fn statuses(&self) -> broadcast::Receiver<Result<Status, Arc<Payload>>> {
         self.status.subscribe()
     }
 
@@ -272,7 +272,7 @@ pub enum JoinError {
     #[error("waiting to rejoin")]
     WaitingToRejoin(Instant),
     #[error("server rejected join")]
-    Rejected(Payload),
+    Rejected(Arc<Payload>),
 }
 impl From<oneshot::error::RecvError> for JoinError {
     fn from(_: oneshot::error::RecvError) -> Self {

@@ -513,7 +513,7 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) -> R
 
     let channel_error = result.err().unwrap();
 
-    assert_eq!(channel_error, JoinError::Rejected(payload));
+    assert_eq!(channel_error, JoinError::Rejected(Arc::new(payload)));
 
     Ok(())
 }
