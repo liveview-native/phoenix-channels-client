@@ -14,6 +14,7 @@ pub mod socket;
 mod topic;
 
 pub use serde_json::Value;
+use strum_macros::Display;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tokio::time::error::Elapsed;
@@ -22,14 +23,21 @@ pub use self::channel::*;
 pub use self::message::{Event, Payload, PhoenixEvent};
 pub use self::socket::{ConnectError, Socket, SpawnError};
 
-#[derive(Error, Debug)]
+/// All errors that can be produced by this library.
+#[derive(Error, Display, Debug)]
 pub enum Error {
+    /// Timeout expired
     #[error(transparent)]
     Elapsed(#[from] Elapsed),
+    /// Errors listening for [Socket::status] or [Channel::status].
     #[error(transparent)]
     Broadcast(#[from] broadcast::error::RecvError),
+    /// Error when parsing URL
+    URLParse(#[from] url::ParseError),
+    /// An error from any function on [Socket].
     #[error(transparent)]
     Socket(#[from] socket::Error),
+    /// An error from any function on [Channel].
     #[error(transparent)]
     Channel(#[from] channel::Error),
 }

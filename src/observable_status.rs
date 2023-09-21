@@ -10,7 +10,7 @@ pub struct ObservableStatus<S: Copy + Into<usize>, E: Clone> {
 }
 impl<S: Copy + Into<usize>, E: Clone> ObservableStatus<S, E> {
     pub fn new(status: S) -> Self {
-        let (tx, _) = broadcast::channel(5);
+        let (tx, _) = broadcast::channel(10);
 
         Self {
             status: Arc::new(AtomicUsize::new(status.into())),

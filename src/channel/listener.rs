@@ -603,19 +603,40 @@ pub(crate) struct Call {
 #[strum_discriminants(repr(usize))]
 #[must_use]
 pub(crate) enum State {
+    /// [super::Channel] is waiting for the [Socket] to [Socket::connect] or automatically
+    /// reconnect.
     WaitingForSocketToConnect {
+        /// * [None] - [super::Channel] will wait until [super::Channel::join] after [Socket]
+        ///            connects to join [super::Channel::topic] with [super::Channel::payload].
+        /// * [Some] - [super::Channel] will rejoin [super::Channel::topic] with
+        ///            [super::Channel::payload] as soon as [Socket] reconnects.
         rejoin: Option<Rejoin>,
     },
+    /// [Socket::status] is [crate::socket::Status::Connected] and [super::Channel] is waiting for
+    /// [super::Channel::join] to be called.
     WaitingToJoin,
+    /// [super::Channel::join] was called and awaiting response from server.
     Joining(Joining),
+    /// [super::Channel::join] was called previously, but the [Socket] was disconnected and
+    /// reconnected.
     WaitingToRejoin {
+        /// When the [Channel] can attempt to automatically rejoin.
         sleep: Pin<Box<Sleep>>,
+        /// How long to wait for the next rejoin if this one fails and how many times rejoining has
+        /// been attempted already.
         rejoin: Rejoin,
     },
+    /// [super::Channel::join] was called and the server responded that the [super::Channel::topic]
+    /// was joined using [super::Channel::payload].
     Joined(Joined),
+    /// [super::Channel::leave] was called and awaiting response from server.
     Leaving(Leaving),
+    /// [super::Channel::leave] was called and the server responded that the [super::Channel::topic]
+    /// was left.
     Left,
+    /// [super::Channel::shutdown] was called, but the async task hasn't exited yet.
     ShuttingDown,
+    /// The async task has exited.
     ShutDown,
 }
 impl State {
