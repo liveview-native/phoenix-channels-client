@@ -19,7 +19,7 @@ use crate::join_reference::JoinReference;
 use crate::message::{Broadcast, Push};
 use crate::socket::listener::{Connectivity, Disconnected};
 use crate::topic::Topic;
-use crate::{channel, socket, JoinError, Payload, Socket};
+use crate::{channel, socket, Event, JoinError, Payload, PhoenixEvent, Socket};
 
 pub(super) struct Listener {
     socket: Arc<Socket>,
@@ -148,11 +148,7 @@ impl Listener {
                         Ok(()) = &mut joined.left_rx => State::Left,
                         Some(state_command) = self.state_command_rx.recv() => self.update_state(State::Joined(joined), state_command).await?,
                         Some(send_command) = self.send_command_rx.recv() => self.send(joined, send_command).await,
-                        Some(push) = joined.push_rx.recv() => {
-                            self.send_event_payload(push);
-
-                            State::Joined(joined)
-                        }
+                        Some(push) = joined.push_rx.recv() => self.push_received(joined, push),
                         Ok(broadcast) = joined.broadcast_rx.recv() => {
                             self.send_event_payload(broadcast);
 
@@ -402,6 +398,23 @@ impl Listener {
         }
 
         ShutdownError::SocketShutdown
+    }
+
+    fn push_received(&self, joined: Joined, push: Push) -> State {
+        debug!(
+            "{} joined as {} received push: {:#?}",
+            &self.topic, &self.join_reference, push
+        );
+        let event_payload: EventPayload = push.into();
+        self.send_event_payload(event_payload.clone());
+
+        match event_payload {
+            EventPayload {
+                event: Event::Phoenix(PhoenixEvent::Close),
+                ..
+            } => joined.rejoin().wait(),
+            _ => State::Joined(joined),
+        }
     }
 
     /// Used during graceful termination to tell the server we're leaving the channel
