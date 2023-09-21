@@ -600,7 +600,6 @@ pub(crate) struct Call {
 #[derive(EnumDiscriminants, EnumIs)]
 #[strum_discriminants(name(Status))]
 #[strum_discriminants(vis(pub))]
-#[strum_discriminants(derive(EnumIs))]
 #[strum_discriminants(repr(usize))]
 #[must_use]
 pub(crate) enum State {
@@ -788,6 +787,85 @@ impl Debug for State {
             State::Left { .. } => f.write_str("Left"),
             State::ShuttingDown => f.write_str("ShuttingDown"),
             State::ShutDown => f.write_str("ShutDown"),
+        }
+    }
+}
+
+impl Status {
+    /// [super::Channel] is waiting for the [Socket] to [Socket::connect] or automatically
+    /// reconnect.
+    pub const fn is_waiting_for_socket_to_connect(&self) -> bool {
+        match self {
+            Status::WaitingForSocketToConnect => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::status] is [crate::socket::Status::Connected] and [super::Channel] is waiting for
+    /// [super::Channel::join] to be called.
+    pub const fn is_waiting_to_join(&self) -> bool {
+        match self {
+            Status::WaitingToJoin => true,
+            _ => false,
+        }
+    }
+
+    /// [super::Channel::join] was called and awaiting response from server.
+    pub const fn is_joining(&self) -> bool {
+        match self {
+            Status::Joining => true,
+            _ => false,
+        }
+    }
+
+    /// [super::Channel::join] was called previously, but the [Socket] was disconnected and
+    /// reconnected.
+    pub const fn is_waiting_to_rejoin(&self) -> bool {
+        match self {
+            Status::WaitingToRejoin => true,
+            _ => false,
+        }
+    }
+
+    /// [super::Channel::join] was called and the server responded that the [super::Channel::topic]
+    /// was joined using [super::Channel::payload].
+    pub const fn is_joined(&self) -> bool {
+        match self {
+            Status::Joined => true,
+            _ => false,
+        }
+    }
+
+    /// [super::Channel::leave] was called and awaiting response from server.
+    pub const fn is_leaving(&self) -> bool {
+        match self {
+            Status::Leaving => true,
+            _ => false,
+        }
+    }
+
+    /// [super::Channel::leave] was called and the server responded that the [super::Channel::topic]
+    /// was left.
+    pub const fn is_left(&self) -> bool {
+        match self {
+            Status::Left => true,
+            _ => false,
+        }
+    }
+
+    /// [super::Channel::shutdown] was called, but the async task hasn't exited yet.
+    pub const fn is_shutting_down(&self) -> bool {
+        match self {
+            Status::ShuttingDown => true,
+            _ => false,
+        }
+    }
+
+    /// The async task has exited.
+    pub const fn is_shut_down(&self) -> bool {
+        match self {
+            Status::ShutDown => true,
+            _ => false,
         }
     }
 }

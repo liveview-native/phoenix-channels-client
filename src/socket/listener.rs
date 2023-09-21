@@ -727,7 +727,6 @@ impl Listener {
 #[derive(EnumDiscriminants, EnumIs)]
 #[strum_discriminants(name(Status))]
 #[strum_discriminants(vis(pub))]
-#[strum_discriminants(derive(EnumIs))]
 #[strum_discriminants(repr(usize))]
 #[must_use]
 enum State {
@@ -775,6 +774,56 @@ impl Debug for State {
     }
 }
 
+impl Status {
+    /// [Socket::connect] has never been called.
+    pub const fn is_never_connected(&self) -> bool {
+        match self {
+            Status::NeverConnected => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::connect] was called and server responded the socket is connected.
+    pub const fn is_connected(&self) -> bool {
+        match self {
+            Status::Connected => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::connect] was called previously, but the [Socket] was disconnected by the server and
+    /// [Socket] needs to wait to reconnect.
+    pub const fn is_waiting_to_reconnect(&self) -> bool {
+        match self {
+            Status::WaitingToReconnect => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::disconnect] was called and the server responded that the socket as disconnected.
+    pub const fn is_disconnected(&self) -> bool {
+        match self {
+            Status::Disconnected => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::shutdown] was called, but the async task hasn't exited yet.
+    pub const fn is_shutting_down(&self) -> bool {
+        match self {
+            Status::ShuttingDown => true,
+            _ => false,
+        }
+    }
+
+    /// The async task has exited.
+    pub const fn is_shut_down(&self) -> bool {
+        match self {
+            Status::ShutDown => true,
+            _ => false,
+        }
+    }
+}
 impl Default for Status {
     fn default() -> Self {
         Status::NeverConnected
