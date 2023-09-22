@@ -39,6 +39,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --all-targets
       - name: Generate docs for phoenix_channel_clients
         uses: actions-rs/cargo@v1
         with:

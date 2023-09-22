@@ -84,6 +84,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --all-targets
       - name: Install hex
         run: mix local.hex --force
       - name: Install rebar3
