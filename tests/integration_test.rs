@@ -246,7 +246,7 @@ async fn channel_statuses() -> Result<(), Error> {
             .await
             .unwrap()
             .unwrap(),
-        Ok(channel::Status::WaitingToRejoin)
+        Ok(channel::Status::WaitingToRejoin(_))
     );
     assert_matches!(
         timeout(JOIN_TIMEOUT, statuses.recv())
@@ -896,7 +896,7 @@ async fn assert_waiting_to_rejoin(
         .unwrap()
     {
         Ok(status) => match status {
-            channel::Status::WaitingToRejoin => (),
+            channel::Status::WaitingToRejoin(_) => (),
             other => panic!("Status other than waiting to rejoin: {:?}", other),
         },
         Err(payload) => panic!(
