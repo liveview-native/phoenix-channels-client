@@ -107,7 +107,7 @@ async fn socket_statuses() -> Result<(), Error> {
             .await
             .unwrap()
             .unwrap(),
-        Ok(socket::Status::WaitingToReconnect)
+        Ok(socket::Status::WaitingToReconnect(_))
     );
     assert_matches!(
         timeout(CONNECT_TIMEOUT, statuses.recv())
@@ -390,7 +390,7 @@ async fn socket_key_rotation_test() -> Result<(), Error> {
     loop {
         tokio::select! {
             result  = timeout(CALL_TIMEOUT, statuses.recv()) => match result?? {
-                Ok(socket::Status::WaitingToReconnect) => {
+                Ok(socket::Status::WaitingToReconnect(_)) => {
                     reconnect_count += 1;
 
                     if reconnect_count > 5 {
