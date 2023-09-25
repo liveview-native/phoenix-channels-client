@@ -1,7 +1,7 @@
 # based on https://github.com/xaynetwork/cargo_tai
 name: x86_64-linux-android
 
-on: push
+on: [pull_request, push]
 
 env:
   ANDROID_COMMANDLINE_TOOLS_VERSION: 9477386
@@ -84,6 +84,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --all-targets
       - name: Install hex
         run: mix local.hex --force
       - name: Install rebar3

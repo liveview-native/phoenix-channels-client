@@ -40,8 +40,13 @@ defmodule TestServer.Secret do
   end
 
   def handle_call({:delete, id, secret}, _from, state) do
+    IO.inspect(%{id: id, secret: secret, state: state})
+
     case state do
-      %{^id => ^secret} -> {:reply, :ok, Map.delete(state, id)}
+      %{^id => ^secret} ->
+        TestServer.Endpoint.broadcast!("sockets:" <> id, "disconnect", %{})
+
+        {:reply, :ok, Map.delete(state, id)}
       _ -> {:reply, :error, state}
     end
   end

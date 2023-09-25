@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use log::debug;
 use serde_json::{json, Value};
+use tokio::sync::broadcast;
 use tokio::time;
 use tokio::time::{timeout, Instant};
 use tokio_tungstenite::tungstenite;
@@ -298,7 +299,7 @@ async fn channel_statuses() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_key_rotation_test() -> Result<(), Error> {
+async fn channel_key_rotation_test() -> Result<(), Error> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -307,54 +308,82 @@ async fn phoenix_channels_socket_key_rotation_test() -> Result<(), Error> {
 
     let id = id();
     let shared_secret_url = shared_secret_url(id.clone());
-    let generate_secret_socket = connected_socket(shared_secret_url).await?;
+    let socket = connected_socket(shared_secret_url).await?;
 
-    let generate_secret_channel = generate_secret_socket
-        .channel("channel:generate_secret", None)
-        .await?;
-    generate_secret_channel.join(JOIN_TIMEOUT).await.unwrap();
+    let topic = "channel:protected";
 
-    let Payload::Value(value) = generate_secret_channel
-        .call("generate_secret", json!({}), CALL_TIMEOUT)
-        .await? else {
-            panic!("secret not returned")
-        };
+    let channel = socket.channel(topic, None).await?;
+    let mut statuses = channel.statuses();
 
-    let secret = if let Value::String(ref secret) = *value {
-        secret.to_owned()
-    } else {
-        panic!("secret ({:?}) is not a string", value);
+    match channel.join(JOIN_TIMEOUT).await {
+        Ok(_) => panic!("Joined protected channel without being authorized"),
+        Err(join_error) => match join_error {
+            channel::JoinError::Rejected(payload) => match payload.as_ref() {
+                Payload::Value(arc_value) => {
+                    assert_eq!(arc_value.as_ref(), &json!({"reason": "unauthorized"}))
+                }
+                Payload::Binary(bytes) => panic!("Unexpected binary payload: {:?}", bytes),
+            },
+            other => panic!("Join wasn't rejected and instead {:?}", other),
+        },
     };
 
+    assert_joining(&mut statuses).await;
+    assert_unauthorized(&mut statuses).await;
+    assert_waiting_to_rejoin(&mut statuses).await;
+
+    // happens again because of zero delay retry on first retry
+    assert_joining(&mut statuses).await;
+    assert_unauthorized(&mut statuses).await;
+    assert_waiting_to_rejoin(&mut statuses).await;
+
+    authorize(&id, topic).await;
+
+    // next rejoin should work
+    assert_joining(&mut statuses).await;
+    assert_joined(&mut statuses).await;
+
+    deauthorize(&id, topic).await;
+
+    // should attempt to rejoin when the server send phx_close, but see the error again.
+    assert_waiting_to_rejoin(&mut statuses).await;
+    assert_joining(&mut statuses).await;
+    assert_unauthorized(&mut statuses).await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn socket_key_rotation_test() -> Result<(), Error> {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    let id = id();
+    let shared_secret_url = shared_secret_url(id.clone());
+    let socket = connected_socket(shared_secret_url).await?;
+    let secret = generate_secret(&socket).await?;
     let secret_url = secret_url(id, secret);
     let secret_socket = connected_socket(secret_url).await?;
 
     let secret_channel = secret_socket.channel("channel:secret", None).await?;
     secret_channel.join(JOIN_TIMEOUT).await?;
 
-    secret_channel
+    match secret_channel
         .call("delete_secret", json!({}), CALL_TIMEOUT)
-        .await?;
-    let payload = json_payload();
+        .await
+    {
+        Ok(payload) => panic!(
+            "Deleting secret succeeded without disconnecting socket and returned payload: {:?}",
+            payload
+        ),
+        Err(channel::CallError::SocketDisconnected) => (),
+        Err(other) => panic!("Error other than SocketDisconnected: {:?}", other),
+    }
 
     let mut statuses = secret_socket.statuses();
-
-    secret_channel
-        .call("socket_disconnect", json!({}), CALL_TIMEOUT)
-        .await
-        .unwrap_err();
-
-    debug!("Sending to check for reconnect");
-    assert_matches!(
-        secret_channel
-            .call(
-                "send_reply",
-                payload.clone(),
-                CONNECT_TIMEOUT + JOIN_TIMEOUT + CALL_TIMEOUT
-            )
-            .await,
-        Err(CallError::Timeout)
-    );
 
     let mut reconnect_count = 0;
 
@@ -512,7 +541,7 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) -> R
 
     let channel_error = result.err().unwrap();
 
-    assert_eq!(channel_error, JoinError::Rejected(payload));
+    assert_eq!(channel_error, JoinError::Rejected(Arc::new(payload)));
 
     Ok(())
 }
@@ -820,6 +849,110 @@ async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) -> R
     Ok(())
 }
 
+async fn authorize(id: &str, channel_name: &str) {
+    let shared_secret_url = shared_secret_url(id.to_string());
+    let socket = connected_socket(shared_secret_url).await.unwrap();
+    let channel = socket.channel("channel:authorize", None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+
+    channel
+        .call(
+            "authorize",
+            json!({"channel": channel_name, "id": id}),
+            CALL_TIMEOUT,
+        )
+        .await
+        .unwrap();
+
+    channel.shutdown().await.unwrap();
+    socket.shutdown().await.unwrap();
+}
+
+async fn deauthorize(id: &str, channel_name: &str) {
+    let shared_secret_url = shared_secret_url(id.to_string());
+    let socket = connected_socket(shared_secret_url).await.unwrap();
+    let channel = socket.channel("channel:deauthorize", None).await.unwrap();
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+
+    channel
+        .call(
+            "deauthorize",
+            json!({"channel": channel_name, "id": id}),
+            CALL_TIMEOUT,
+        )
+        .await
+        .unwrap();
+
+    channel.shutdown().await.unwrap();
+    socket.shutdown().await.unwrap();
+}
+
+async fn assert_waiting_to_rejoin(
+    statuses: &mut broadcast::Receiver<Result<channel::Status, Arc<Payload>>>,
+) {
+    match timeout(CALL_TIMEOUT, statuses.recv())
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        Ok(status) => match status {
+            channel::Status::WaitingToRejoin => (),
+            other => panic!("Status other than waiting to rejoin: {:?}", other),
+        },
+        Err(payload) => panic!(
+            "Join rejection seen before waiting to rejoin status: {:?}",
+            payload
+        ),
+    }
+}
+
+async fn assert_joining(statuses: &mut broadcast::Receiver<Result<channel::Status, Arc<Payload>>>) {
+    match timeout(CALL_TIMEOUT, statuses.recv())
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        Ok(status) => match status {
+            channel::Status::Joining => (),
+            other => panic!("Status other than joining: {:?}", other),
+        },
+        Err(payload) => panic!("Join rejection seen before joining status: {:?}", payload),
+    }
+}
+
+async fn assert_unauthorized(
+    statuses: &mut broadcast::Receiver<Result<channel::Status, Arc<Payload>>>,
+) {
+    match timeout(CALL_TIMEOUT, statuses.recv())
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        Ok(status) => panic!("Got status instead of join rejection: {:?}", status),
+        Err(payload) => match payload.as_ref() {
+            Payload::Value(value) => assert_eq!(value.as_ref(), &json!({"reason": "unauthorized"})),
+            Payload::Binary(bytes) => panic!("Unexpected binary payload: {:?}", bytes),
+        },
+    }
+}
+
+async fn assert_joined(statuses: &mut broadcast::Receiver<Result<channel::Status, Arc<Payload>>>) {
+    match timeout(CALL_TIMEOUT, statuses.recv())
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        Ok(status) => match status {
+            channel::Status::Joined => (),
+            other => panic!("Status other than joined: {:?}", other),
+        },
+        Err(payload) => panic!(
+            "Join rejection seen instead of joined status: {:?}",
+            payload
+        ),
+    }
+}
+
 async fn connected_socket(url: Url) -> Result<Arc<Socket>, Error> {
     let socket = Socket::spawn(url).await?;
 
@@ -849,6 +982,26 @@ fn shared_secret_url(id: String) -> Url {
         &[("shared_secret", "supersecret".to_string()), ("id", id)],
     )
     .unwrap()
+}
+
+async fn generate_secret(socket: &Arc<Socket>) -> Result<String, Error> {
+    let channel = socket.channel("channel:generate_secret", None).await?;
+    channel.join(JOIN_TIMEOUT).await.unwrap();
+
+    let Payload::Value(value) = channel
+        .call("generate_secret", json!({}), CALL_TIMEOUT)
+        .await?
+    else {
+        panic!("secret not returned")
+    };
+
+    let secret = if let Value::String(ref secret) = *value {
+        secret.to_owned()
+    } else {
+        panic!("secret ({:?}) is not a string", value);
+    };
+
+    Ok(secret)
 }
 
 fn secret_url(id: String, secret: String) -> Url {

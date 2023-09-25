@@ -1,3 +1,167 @@
+//! A [Socket] connects to the server through a web socket.  [Socket]s need to be
+//! [connected](Socket::connect) when the [Url] params are sent to the server to authorize or
+//! customize for this specific [Socket].
+//!
+//! A [Socket] needs to be created with [Socket::spawn].
+//!
+//! ```
+//! # use std::time::Duration;
+//! #
+//! # use serde_json::json;
+//! # use url::Url;
+//! #
+//! # use phoenix_channels_client::{Error, Socket};
+//! #
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Error> {
+//! // URL with params for authentication
+//! let url = Url::parse_with_params(
+//!     "ws://127.0.0.1:9002/socket/websocket",
+//!     &[("shared_secret", "supersecret"), ("id", "user-id")],
+//! )?;
+//!
+//! // Create a socket
+//! let socket = Socket::spawn(url).await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! If the [Socket::spawn] [Url] does not have the correct params for authorization, then it will
+//! pass back the error from [Socket::connect].
+//!
+//! ```
+//! # use std::time::Duration;
+//! #
+//! # use serde_json::json;
+//!#  use tokio_tungstenite::tungstenite;
+//! # use url::Url;
+//! #
+//! # use phoenix_channels_client::{socket, Error, Socket};
+//! #
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Error> {
+//! // URL with params for authentication
+//! use phoenix_channels_client::{ConnectError, socket};
+//! let url = Url::parse_with_params(
+//!     "ws://127.0.0.1:9002/socket/websocket",
+//!     // WITHOUT shared secret
+//!     &[("id", "user-id")],
+//! )?;
+//!
+//! // Create a socket
+//! let socket = Socket::spawn(url).await?;
+//!
+//! // Connecting the socket returns the authorization error
+//! match socket.connect(Duration::from_secs(5)).await {
+//!     Err(socket::ConnectError::WebSocketError(web_socket_error)) => match web_socket_error.as_ref() {
+//!        tungstenite::Error::Http(response) => println!("Got status {} from server", response.status()),
+//!        web_socket_error => panic!("Got an unexpected web socket error: {:?}", web_socket_error)
+//!     },
+//!     other => panic!("Didn't get authorization error and instead {:?}", other)
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! If the server uses authentication for individual sockets it is important to
+//! [monitor the status of the socket](Socket::statuses), to be notified when the [Url] params are
+//! no longer valif to authenticate to the socket and a new [Socket] with the new authentication
+//! params should be [create](Socket::spawn).
+//!
+//!```
+//! # use std::sync::Arc;
+//! # use std::time::Duration;
+//! #
+//! # use serde_json::{json, Value};
+//! # use tokio_tungstenite::tungstenite;
+//! # use url::Url;
+//! # use uuid::Uuid;
+//! #
+//! # use phoenix_channels_client::{channel, socket, Error, Payload, Socket};
+//! #
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Error> {
+//! let id = id();
+//! let secret = generate_secret(&id).await;
+//! let secret_url = Url::parse_with_params(
+//!     "ws://127.0.0.1:9002/socket/websocket",
+//!     &[("secret", secret.clone()), ("id", id.clone())],
+//! )?;
+//! let secret_socket = Socket::spawn(secret_url).await?;
+//! secret_socket.connect(Duration::from_secs(10)).await?;
+//! let mut statuses = secret_socket.statuses();
+//!
+//! // Deauthorize the socket
+//! delete_secret(&id, &secret).await;
+//!
+//! match statuses.recv().await? {
+//!     Ok(socket::Status::WaitingToReconnect) => (),
+//!     other => panic!("Didn't wait to reconnect and instead {:?}", other)
+//! }
+//! match statuses.recv().await? {
+//!     Err(web_socket_error) => match web_socket_error.as_ref() {
+//!        tungstenite::Error::Http(response) => println!("Got status {} from server", response.status()),
+//!        web_socket_error => panic!("Got an unexpected web socket error: {:?}", web_socket_error)
+//!     },
+//!     other => panic!("Didn't get authorization error and instead {:?}", other)
+//! }
+//! # Ok(())
+//! # }
+//! #
+//! # fn id() -> String {
+//! #     Uuid::new_v4()
+//! #         .hyphenated()
+//! #         .encode_upper(&mut Uuid::encode_buffer())
+//! #         .to_string()
+//! # }
+//! #
+//! # async fn generate_secret(id: &str) -> String {
+//! #     let url = Url::parse_with_params(
+//! #         "ws://127.0.0.1:9002/socket/websocket",
+//! #         &[("shared_secret", "supersecret"), ("id", id.clone())],
+//! #     ).unwrap();
+//! #
+//! #     let socket = Socket::spawn(url).await.unwrap();
+//! #     socket.connect(Duration::from_secs(10)).await.unwrap();
+//! #
+//! #     let channel = socket.channel("channel:generate_secret", None).await.unwrap();
+//! #     channel.join(Duration::from_secs(10)).await.unwrap();
+//! #
+//! #     let Payload::Value(value) = channel
+//! #         .call("generate_secret", json!({}), Duration::from_secs(10))
+//! #         .await
+//! #         .unwrap()
+//! #     else {
+//! #         panic!("secret not returned")
+//! #     };
+//! #
+//! #     let secret = if let Value::String(ref secret) = *value {
+//! #         secret.to_owned()
+//! #     } else {
+//! #         panic!("secret ({:?}) is not a string", value);
+//! #     };
+//! #
+//! #     secret
+//! # }
+//! #
+//! # async fn delete_secret(id: &str, secret: &str) {
+//! #    let url = Url::parse_with_params(
+//! #        "ws://127.0.0.1:9002/socket/websocket",
+//! #        &[("secret", secret), ("id", id.clone())],
+//! #    ).unwrap();
+//! #
+//! #     let socket = Socket::spawn(url).await.unwrap();
+//! #     socket.connect(Duration::from_secs(10)).await.unwrap();
+//! #
+//! #     let channel = socket.channel("channel:secret", None).await.unwrap();
+//! #     channel.join(Duration::from_secs(10)).await.unwrap();
+//! #
+//! #     match channel.call("delete_secret", json!({}), Duration::from_secs(10)).await {
+//! #         Ok(payload) => panic!("Deleting secret succeeded without disconnecting socket and returned payload: {:?}", payload),
+//! #         Err(channel::CallError::SocketDisconnected) => (),
+//! #         Err(other) => panic!("Error other than SocketDisconnected: {:?}", other)
+//! #     }
+//! # }
 pub(crate) mod listener;
 
 use std::panic;
@@ -28,16 +192,22 @@ pub use crate::socket::listener::{ShutdownError, Status};
 use crate::topic::Topic;
 use crate::{channel, Channel, EventPayload};
 
+/// Errors when calling [Socket] functions.
 #[derive(Error, Debug)]
 pub enum Error {
+    /// Error when calling [Socket::spawn].
     #[error(transparent)]
     Spawn(#[from] SpawnError),
+    /// Error when calling [Socket::connect].
     #[error(transparent)]
     Connect(#[from] ConnectError),
+    /// Error when calling [Socket::channel].
     #[error(transparent)]
     Channel(#[from] ChannelError),
+    /// Error when calling [Socket::disconnect].
     #[error(transparent)]
     Disconnect(#[from] DisconnectError),
+    /// Error when calling [Socket::shutdown].
     #[error(transparent)]
     Shutdown(#[from] ShutdownError),
 }
@@ -52,7 +222,7 @@ const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 /// Once connected, a worker task is spawned that acts as the broker for messages being sent or
 /// received over the socket.
 ///
-/// Once connected, the more useful [`Channel`] instance can be obtained via [`Self::join`]. Most functionality
+/// Once connected, the more useful [`Channel`] instance can be obtained via [`Self::channel`]. Most functionality
 /// related to channels is exposed there.
 pub struct Socket {
     url: Arc<Url>,
@@ -68,7 +238,7 @@ pub struct Socket {
 }
 
 impl Socket {
-    /// Spawns a new [Socket] that must be [connect]ed.
+    /// Spawns a new [Socket] that must be [Socket::connect]ed.
     pub async fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
@@ -107,14 +277,21 @@ impl Socket {
         }))
     }
 
+    /// The `url` passed to [Socket::spawn]
     pub fn url(&self) -> Arc<Url> {
         self.url.clone()
     }
 
+    /// The current [Status].
+    ///
+    /// Use [Socket::status] to receive changes to the status.
     pub fn status(&self) -> Status {
         self.status.get()
     }
 
+    /// Broadcasts [Socket::status] changes.
+    ///
+    /// Use [Socket::status] to see the current status.
     pub fn statuses(&self) -> broadcast::Receiver<Result<Status, Arc<tungstenite::Error>>> {
         self.status.subscribe()
     }
@@ -158,7 +335,7 @@ impl Socket {
         disconnected_rx.await.map_err(From::from)
     }
 
-    /// Propagates panic from [Listener::listen]
+    /// Propagates panic from async task.
     pub async fn shutdown(&self) -> Result<(), ShutdownError> {
         self.state_command_tx
             .send(StateCommand::Shutdown)
@@ -300,16 +477,25 @@ pub enum SpawnError {
     UnsupportedScheme(Url),
 }
 
+/// Errors from [Socket::connect].
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
+    /// Server did not respond before timeout passed to [Socket::connect] expired.
     #[error("timeout connecting to server")]
     Timeout,
+    /// A [tokio_tungstenite::WebSocketStream] from the underlying
+    /// [tungstenite::protocol::WebSocket].
     #[error("websocket error: {0}")]
     WebSocketError(#[from] Arc<tungstenite::Error>),
+    /// [Socket] shutting down because [Socket::shutdown] was called.
     #[error("socket shutting down")]
     SocketShuttingDown,
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
     #[error("socket already shutdown")]
     SocketShutdown,
+    /// The [Socket] is currently waiting until [Instant] to reconnect to not overload the server,
+    /// so can't honor the explicit [Socket::connect].
     #[error("waiting to reconnect")]
     WaitingToReconnect(Instant),
 }
@@ -329,8 +515,11 @@ impl From<oneshot::error::RecvError> for ConnectError {
     }
 }
 
+/// Errors when calling [Socket::channel]
 #[derive(Debug, thiserror::Error)]
 pub enum ChannelError {
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
     #[error("socket already shutdown")]
     Shutdown,
 }
@@ -345,14 +534,22 @@ impl From<ShutdownError> for ChannelError {
     }
 }
 
+/// Errors from the [Socket] when calling [Channel::join].
 #[derive(Debug, thiserror::Error)]
 pub enum JoinError {
+    /// The [Channel::payload] was rejected when attempting to [Channel::join] or automatically
+    /// rejoin [Channel::topic].
     #[error("server rejected join")]
     Rejected(Payload),
+    /// [Socket::disconnect] was called after [Channel::join] was called while waiting for a
+    /// response from the server.
     #[error("socket was disconnect while channel was being joined")]
     Disconnected,
+    /// Timeout joining channel
     #[error("timeout joining channel")]
     Timeout,
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
     #[error("socket already shutdown")]
     Shutdown,
 }
@@ -362,8 +559,11 @@ impl From<ShutdownError> for JoinError {
     }
 }
 
+/// Errors that occur when [Socket] attempts to cast to server on behalf of [Channel::cast].
 #[derive(Debug, thiserror::Error)]
 pub enum CastError {
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
     #[error("socket already shutdown")]
     Shutdown,
 }
@@ -375,6 +575,8 @@ impl From<ShutdownError> for CastError {
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum CallError {
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
     #[error("socket already shutdown")]
     Shutdown,
 }
@@ -384,8 +586,11 @@ impl From<ShutdownError> for CallError {
     }
 }
 
+/// Error when calling [Socket::disconnect]
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DisconnectError {
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
     #[error("socket already shutdown")]
     SocketShutdown,
 }

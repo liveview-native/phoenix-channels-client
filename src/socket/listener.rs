@@ -727,18 +727,27 @@ impl Listener {
 #[derive(EnumDiscriminants, EnumIs)]
 #[strum_discriminants(name(Status))]
 #[strum_discriminants(vis(pub))]
-#[strum_discriminants(derive(EnumIs))]
 #[strum_discriminants(repr(usize))]
 #[must_use]
 enum State {
+    /// [Socket::connect] has never been called.
     NeverConnected,
+    /// [Socket::connect] was called and server responded the socket is connected.
     Connected(Connected),
+    /// [Socket::connect] was called previously, but the [Socket] was disconnected by the server and
+    /// [Socket] needs to wait to reconnect.
     WaitingToReconnect {
+        /// When the [Socket] can attempt to automatically reconnect.
         sleep: Pin<Box<Sleep>>,
+        /// How long to wait for the next reconnect if this one fails and how many times
+        /// reconnecting has been attempted already.
         reconnect: Reconnect,
     },
+    /// [Socket::disconnect] was called and the server responded that the socket as disconnected.
     Disconnected,
+    /// [Socket::shutdown] was called, but the async task hasn't exited yet.
     ShuttingDown,
+    /// The async task has exited.
     ShutDown,
 }
 impl State {
@@ -775,6 +784,56 @@ impl Debug for State {
     }
 }
 
+impl Status {
+    /// [Socket::connect] has never been called.
+    pub const fn is_never_connected(&self) -> bool {
+        match self {
+            Status::NeverConnected => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::connect] was called and server responded the socket is connected.
+    pub const fn is_connected(&self) -> bool {
+        match self {
+            Status::Connected => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::connect] was called previously, but the [Socket] was disconnected by the server and
+    /// [Socket] needs to wait to reconnect.
+    pub const fn is_waiting_to_reconnect(&self) -> bool {
+        match self {
+            Status::WaitingToReconnect => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::disconnect] was called and the server responded that the socket as disconnected.
+    pub const fn is_disconnected(&self) -> bool {
+        match self {
+            Status::Disconnected => true,
+            _ => false,
+        }
+    }
+
+    /// [Socket::shutdown] was called, but the async task hasn't exited yet.
+    pub const fn is_shutting_down(&self) -> bool {
+        match self {
+            Status::ShuttingDown => true,
+            _ => false,
+        }
+    }
+
+    /// The async task has exited.
+    pub const fn is_shut_down(&self) -> bool {
+        match self {
+            Status::ShutDown => true,
+            _ => false,
+        }
+    }
+}
 impl Default for Status {
     fn default() -> Self {
         Status::NeverConnected
@@ -924,18 +983,25 @@ impl Connected {
     ) -> Option<oneshot::Sender<Result<Payload, channel::CallError>>> {
         let Entry::Occupied(mut reply_tx_by_reference_by_join_reference_entry) = self
             .reply_tx_by_reference_by_join_reference_by_topic
-            .entry(topic.clone()) else { return None };
+            .entry(topic.clone())
+        else {
+            return None;
+        };
 
         let reply_tx_by_reference_by_join_reference =
             reply_tx_by_reference_by_join_reference_entry.get_mut();
 
         let Entry::Occupied(mut reply_tx_by_reference_entry) =
             reply_tx_by_reference_by_join_reference.entry(join_reference)
-        else { return None };
+        else {
+            return None;
+        };
 
         let reply_tx_by_reference = reply_tx_by_reference_entry.get_mut();
 
-        let Entry::Occupied(reply_tx_entry) = reply_tx_by_reference.entry(reference) else { return None };
+        let Entry::Occupied(reply_tx_entry) = reply_tx_by_reference.entry(reference) else {
+            return None;
+        };
         let reply_tx = reply_tx_entry.remove();
 
         if reply_tx_by_reference.is_empty() {
@@ -1221,12 +1287,18 @@ impl Connect {
     }
 }
 
+/// Error from [Socket::shutdown] or from the server itself that caused the [Socket] to shutdown.
 #[derive(Debug, thiserror::Error)]
 pub enum ShutdownError {
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
     #[error("listener task was already joined once from another caller")]
     AlreadyJoined,
+    /// [tungstenite::error::UrlError] with the `url` passed to [Socket::spawn].  This can include
+    /// incorrect scheme ([tungstenite::error::UrlError::UnsupportedUrlScheme]).
     #[error("URL error: {0}")]
     Url(#[from] UrlError),
+    /// HTTP error response from server.
     #[error("HTTP error: {}", .0.status())]
     Http(Response<Option<String>>),
     /// HTTP format error.

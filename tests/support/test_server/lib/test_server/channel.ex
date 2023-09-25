@@ -7,13 +7,31 @@ defmodule TestServer.Channel do
 
   alias Phoenix.Socket
 
+  intercept ~w(deauthorized)
+
   def join("channel:error:" <> _, payload, _socket) do
     {:error, payload}
+  end
+
+  def join("channel:protected" = channel, _, %Phoenix.Socket{assigns: %{id: id}} = socket) do
+    if TestServer.Authorization.authorized?(id, channel) do
+      {:ok, socket}
+    else
+      {:error, %{reason: "unauthorized"}}
+    end
   end
 
   def join(topic, payload, socket) do
     IO.inspect("#{topic} was joined with #{inspect(payload)}")
     {:ok, assign(socket, :payload, payload)}
+  end
+
+  def handle_in("authorize", %{"channel" => channel, "id" => id}, socket) do
+    {:reply, TestServer.Authorization.authorize(id, channel), socket}
+  end
+
+  def handle_in("deauthorize", %{"channel" => channel, "id" => id}, socket) do
+    {:reply, TestServer.Authorization.deauthorize(id, channel), socket}
   end
 
   def handle_in("generate_secret", _, %Phoenix.Socket{assigns: %{id: id}} = socket) do
@@ -64,15 +82,27 @@ defmodule TestServer.Channel do
     {:noreply, socket}
   end
 
-  def handle_in("socket_disconnect", _payload, %Phoenix.Socket{id: id} = socket) do
+  def handle_in("socket_disconnect", _payload, %Socket{id: id} = socket) do
     TestServer.Endpoint.broadcast!(id, "disconnect", %{})
 
     {:noreply, socket}
+  end
+
+  def handle_in("stop", _, socket) do
+    {:stop, :shutdown, :ok, socket}
   end
 
   def handle_in("transport_error", _payload, socket) do
     Process.exit(socket.transport_pid, :kill)
 
     {:noreply, socket}
+  end
+
+  def handle_out("deauthorized" = event, %{"id" => deauthorized_id}, %Socket{id: "sockets:" <> id} = socket) do
+    if deauthorized_id == id do
+      {:stop, {:shutdown, :unauthorized}, socket}
+    else
+      {:noreply, socket}
+    end
   end
 end

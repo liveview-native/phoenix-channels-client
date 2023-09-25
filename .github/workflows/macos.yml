@@ -1,6 +1,6 @@
 name: macos
 
-on: push
+on: [pull_request, push]
 
 env:
   CARGO_TERM_COLOR: always
@@ -52,6 +52,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --all-targets
       - name: Install hex
         run: mix local.hex --force
       - name: Install rebar3

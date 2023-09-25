@@ -647,6 +647,8 @@ pub enum Payload {
 }
 
 impl Payload {
+    /// * `true` - this is a JSON payload.
+    /// * `false` - this is a binary payload.
     pub fn is_value(&self) -> bool {
         match self {
             Self::Value(_) => true,
@@ -654,6 +656,8 @@ impl Payload {
         }
     }
 
+    /// * `true` - this is a binary payload.
+    /// * `false` - this a JSON payload.
     pub fn is_binary(&self) -> bool {
         match self {
             Self::Binary(_) => true,
@@ -661,6 +665,8 @@ impl Payload {
         }
     }
 
+    /// * [Some(&Value)] - the JSON payload.
+    /// * [None] - this is a binary payload.
     pub fn value(&self) -> Option<&Value> {
         match self {
             Self::Value(value) => Some(value.as_ref()),
@@ -668,6 +674,10 @@ impl Payload {
         }
     }
 
+    /// Consume the payload and turn it into its inner JSON if this is a JSON payload.
+    ///
+    /// * `Some(Arc<Value>)` - this is a JSON payload.
+    /// * `None` - this is a binary payload.
     pub fn into_value(self) -> Option<Arc<Value>> {
         match self {
             Self::Value(value) => Some(value),
@@ -675,6 +685,10 @@ impl Payload {
         }
     }
 
+    /// Consume the payload and turn it into its inner binary bytes if this is a binary payload.
+    ///
+    /// * `Some(Bytes)` - this is a binary payload.
+    /// * `None` - this is a JSON payload.
     pub fn into_binary(self) -> Option<Bytes> {
         match self {
             Self::Binary(value) => Some(value),
