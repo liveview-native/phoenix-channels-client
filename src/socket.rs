@@ -241,7 +241,7 @@ pub struct Socket {
 
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
-    pub async fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
+    pub fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
             _ => return Err(SpawnError::UnsupportedScheme(url)),
