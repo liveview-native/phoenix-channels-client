@@ -79,16 +79,16 @@
 //! # use std::time::Duration;
 //! #
 //! # use serde_json::{json, Value};
+//! # use tokio::time::Instant;
 //! # use url::Url;
 //! # use uuid::Uuid;
 //! #
-//! # use phoenix_channels_client::{Error, Payload, Socket};
+//! # use phoenix_channels_client::{channel, Error, JoinError, Payload, Socket};
 //! #
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Error> {
-//! // URL with params for authentication
-//! # use phoenix_channels_client::{channel, JoinError};
 //! # let id = id();
+//! # // URL with params for authentication
 //! # let url = Url::parse_with_params(
 //! #     "ws://127.0.0.1:9002/socket/websocket",
 //! #     &[("shared_secret", "supersecret".to_string()), ("id", id.clone())],
@@ -120,10 +120,11 @@
 //! println!("user isn't authorized for {}: {}", &topic, payload);
 //!
 //! // rejoin happens immediately, so we'll see failed rejoin attempts before authorize takes effect.
-//! match statuses.recv().await? {
-//!     Ok(channel::Status::WaitingToRejoin) => (),
+//! let until = match statuses.recv().await? {
+//!     Ok(channel::Status::WaitingToRejoin(until)) => until,
 //!     other => panic!("Didn't wait to rejoin after being unauthorized instead {:?}", other)
-//! }
+//! };
+//! println!("Will rejoin in {:?}", until.checked_duration_since(Instant::now()).unwrap_or_else(|| Duration::from_micros(0)));
 //! match statuses.recv().await? {
 //!     Ok(channel::Status::Joining) => (),
 //!     other => panic!("Didn't start joining after waiting instead {:?}", other)
@@ -135,10 +136,11 @@
 //! println!("user isn't authorized for {}: {}", &topic, payload);
 //!
 //! // rejoin with delay gives us enough time to authorize
-//! match statuses.recv().await? {
-//!     Ok(channel::Status::WaitingToRejoin) => (),
+//! let until = match statuses.recv().await? {
+//!     Ok(channel::Status::WaitingToRejoin(until)) => until,
 //!     other => panic!("Didn't wait to rejoin after being unauthorized instead {:?}", other)
-//! }
+//! };
+//! println!("Will rejoin in {:?}", until.checked_duration_since(Instant::now()).unwrap_or_else(|| Duration::from_micros(0)));
 //!
 //! authorize(&id, &topic).await;
 //!

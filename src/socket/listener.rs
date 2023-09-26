@@ -14,7 +14,6 @@ use futures::SinkExt;
 use futures::StreamExt;
 use log::{debug, error};
 use serde_json::Value;
-use strum_macros::{EnumDiscriminants, EnumIs};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -724,10 +723,6 @@ impl Listener {
     }
 }
 
-#[derive(EnumDiscriminants, EnumIs)]
-#[strum_discriminants(name(Status))]
-#[strum_discriminants(vis(pub))]
-#[strum_discriminants(repr(usize))]
 #[must_use]
 enum State {
     /// [Socket::connect] has never been called.
@@ -755,7 +750,7 @@ impl State {
         match self {
             State::NeverConnected => Status::NeverConnected,
             State::Connected(_) => Status::Connected,
-            State::WaitingToReconnect { .. } => Status::WaitingToReconnect,
+            State::WaitingToReconnect { sleep, .. } => Status::WaitingToReconnect(sleep.deadline()),
             State::Disconnected => Status::Disconnected,
             State::ShuttingDown => Status::ShuttingDown,
             State::ShutDown => Status::ShutDown,
@@ -784,6 +779,23 @@ impl Debug for State {
     }
 }
 
+/// The status of the [Socket].
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Status {
+    /// [Socket::connect] has never been called.
+    NeverConnected,
+    /// [Socket::connect] was called and server responded the socket is connected.
+    Connected,
+    /// [Socket::connect] was called previously, but the [Socket] was disconnected by the server and
+    /// [Socket] needs to wait to reconnect.
+    WaitingToReconnect(Instant),
+    /// [Socket::disconnect] was called and the server responded that the socket as disconnected.
+    Disconnected,
+    /// [Socket::shutdown] was called, but the async task hasn't exited yet.
+    ShuttingDown,
+    /// The async task has exited.
+    ShutDown,
+}
 impl Status {
     /// [Socket::connect] has never been called.
     pub const fn is_never_connected(&self) -> bool {
@@ -805,7 +817,7 @@ impl Status {
     /// [Socket] needs to wait to reconnect.
     pub const fn is_waiting_to_reconnect(&self) -> bool {
         match self {
-            Status::WaitingToReconnect => true,
+            Status::WaitingToReconnect(_) => true,
             _ => false,
         }
     }
@@ -837,11 +849,6 @@ impl Status {
 impl Default for Status {
     fn default() -> Self {
         Status::NeverConnected
-    }
-}
-impl From<Status> for usize {
-    fn from(status: Status) -> Self {
-        status as usize
     }
 }
 

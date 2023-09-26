@@ -73,6 +73,7 @@
 //! # use std::time::Duration;
 //! #
 //! # use serde_json::{json, Value};
+//! # use tokio::time::Instant;
 //! # use tokio_tungstenite::tungstenite;
 //! # use url::Url;
 //! # use uuid::Uuid;
@@ -94,10 +95,11 @@
 //! // Deauthorize the socket
 //! delete_secret(&id, &secret).await;
 //!
-//! match statuses.recv().await? {
-//!     Ok(socket::Status::WaitingToReconnect) => (),
+//! let until = match statuses.recv().await? {
+//!     Ok(socket::Status::WaitingToReconnect(until)) => until,
 //!     other => panic!("Didn't wait to reconnect and instead {:?}", other)
-//! }
+//! };
+//! println!("Will reconnect in {:?}", until.checked_duration_since(Instant::now()).unwrap_or_else(|| Duration::from_micros(0)));
 //! match statuses.recv().await? {
 //!     Err(web_socket_error) => match web_socket_error.as_ref() {
 //!        tungstenite::Error::Http(response) => println!("Got status {} from server", response.status()),

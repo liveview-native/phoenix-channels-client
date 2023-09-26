@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use log::debug;
-use strum_macros::{EnumDiscriminants, EnumIs};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, Sleep};
@@ -597,10 +596,6 @@ pub(crate) struct Call {
     pub reply_tx: oneshot::Sender<Result<Payload, channel::CallError>>,
 }
 
-#[derive(EnumDiscriminants, EnumIs)]
-#[strum_discriminants(name(Status))]
-#[strum_discriminants(vis(pub))]
-#[strum_discriminants(repr(usize))]
 #[must_use]
 pub(crate) enum State {
     /// [super::Channel] is waiting for the [Socket] to [Socket::connect] or automatically
@@ -645,7 +640,7 @@ impl State {
             State::WaitingForSocketToConnect { .. } => Status::WaitingForSocketToConnect,
             State::WaitingToJoin => Status::WaitingToJoin,
             State::Joining(_) => Status::Joining,
-            State::WaitingToRejoin { .. } => Status::WaitingToRejoin,
+            State::WaitingToRejoin { sleep, .. } => Status::WaitingToRejoin(sleep.deadline()),
             State::Joined { .. } => Status::Joined,
             State::Leaving { .. } => Status::Leaving,
             State::Left => Status::Left,
@@ -812,6 +807,34 @@ impl Debug for State {
     }
 }
 
+/// The status of the [super::Channel].
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Status {
+    /// [super::Channel] is waiting for the [Socket] to [Socket::connect] or automatically
+    /// reconnect.
+    WaitingForSocketToConnect,
+    /// [Socket::status] is [crate::socket::Status::Connected] and [super::Channel] is waiting for
+    /// [super::Channel::join] to be called.
+    WaitingToJoin,
+    /// [super::Channel::join] was called and awaiting response from server.
+    Joining,
+    /// [super::Channel::join] was called previously, but the [Socket] was disconnected and
+    /// reconnected.
+    WaitingToRejoin(Instant),
+    /// [super::Channel::join] was called and the server responded that the [super::Channel::topic]
+    /// was joined using [super::Channel::payload].
+    Joined,
+    /// [super::Channel::leave] was called and awaiting response from server.
+    Leaving,
+    /// [super::Channel::leave] was called and the server responded that the [super::Channel::topic]
+    /// was left.
+    Left,
+    /// [super::Channel::shutdown] was called, but the async task hasn't exited yet.
+    ShuttingDown,
+    /// The async task has exited.
+    ShutDown,
+}
+
 impl Status {
     /// [super::Channel] is waiting for the [Socket] to [Socket::connect] or automatically
     /// reconnect.
@@ -843,7 +866,7 @@ impl Status {
     /// reconnected.
     pub const fn is_waiting_to_rejoin(&self) -> bool {
         match self {
-            Status::WaitingToRejoin => true,
+            Status::WaitingToRejoin(_) => true,
             _ => false,
         }
     }
@@ -888,11 +911,6 @@ impl Status {
             Status::ShutDown => true,
             _ => false,
         }
-    }
-}
-impl From<Status> for usize {
-    fn from(status: Status) -> Self {
-        status as Self
     }
 }
 
