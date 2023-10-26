@@ -8,7 +8,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use flexstr::SharedStr;
 use futures::stream::FuturesUnordered;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -19,22 +18,24 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::{Instant, Interval, Sleep};
-use tokio_tungstenite::tungstenite::error::UrlError;
-use tokio_tungstenite::tungstenite::http;
-use tokio_tungstenite::tungstenite::http::Response;
 use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-use crate::channel::listener::{JoinedChannelReceivers, LeaveError};
-use crate::join_reference::JoinReference;
-use crate::message::{Broadcast, Control, Message, Push, Reply, ReplyStatus};
-use crate::reference::Reference;
-use crate::socket::ConnectError;
-use crate::topic::Topic;
-use crate::{channel, socket, CallError, Channel, EventPayload, Socket};
-use crate::{Event, Payload, PhoenixEvent};
+use crate::ffi::channel::Channel;
+use crate::ffi::message::PhoenixEvent;
+use crate::ffi::socket::Socket;
+use crate::ffi::topic::Topic;
+use crate::rust::channel::listener::{JoinedChannelReceivers, LeaveError};
+use crate::rust::channel::CallError;
+use crate::rust::join_reference::JoinReference;
+use crate::rust::message::{
+    Broadcast, Control, Event, EventPayload, Message, Payload, Push, Reply, ReplyStatus,
+};
+use crate::rust::reference::Reference;
+use crate::rust::socket::{ConnectError, ShutdownError};
+use crate::rust::{channel, socket};
 
-pub(super) struct Listener {
+pub(crate) struct Listener {
     url: Arc<Url>,
     channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
     state_command_rx: mpsc::Receiver<StateCommand>,
@@ -45,7 +46,7 @@ pub(super) struct Listener {
     socket_status: ObservableStatus,
 }
 impl Listener {
-    pub(super) fn spawn(
+    pub(crate) fn spawn(
         url: Arc<Url>,
         socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
@@ -198,8 +199,8 @@ impl Listener {
                 state,
             ),
             State::Connected { .. } => (Ok(()), state),
-            State::ShuttingDown => (Err(ConnectError::SocketShuttingDown), state),
-            State::ShutDown => (Err(ConnectError::SocketShutdown), state),
+            State::ShuttingDown => (Err(ConnectError::ShuttingDown), state),
+            State::ShutDown => unreachable!("Connect should not be called when socket is shutdown"),
         };
 
         connect.connected_tx.send(connect_result).ok();
@@ -499,7 +500,7 @@ impl Listener {
 
     async fn join_timeout(
         deadline: Instant,
-        topic: Topic,
+        topic: Arc<Topic>,
         join_reference: JoinReference,
     ) -> JoinKey {
         time::sleep_until(deadline.into()).await;
@@ -796,56 +797,6 @@ pub enum Status {
     /// The async task has exited.
     ShutDown,
 }
-impl Status {
-    /// [Socket::connect] has never been called.
-    pub const fn is_never_connected(&self) -> bool {
-        match self {
-            Status::NeverConnected => true,
-            _ => false,
-        }
-    }
-
-    /// [Socket::connect] was called and server responded the socket is connected.
-    pub const fn is_connected(&self) -> bool {
-        match self {
-            Status::Connected => true,
-            _ => false,
-        }
-    }
-
-    /// [Socket::connect] was called previously, but the [Socket] was disconnected by the server and
-    /// [Socket] needs to wait to reconnect.
-    pub const fn is_waiting_to_reconnect(&self) -> bool {
-        match self {
-            Status::WaitingToReconnect(_) => true,
-            _ => false,
-        }
-    }
-
-    /// [Socket::disconnect] was called and the server responded that the socket as disconnected.
-    pub const fn is_disconnected(&self) -> bool {
-        match self {
-            Status::Disconnected => true,
-            _ => false,
-        }
-    }
-
-    /// [Socket::shutdown] was called, but the async task hasn't exited yet.
-    pub const fn is_shutting_down(&self) -> bool {
-        match self {
-            Status::ShuttingDown => true,
-            _ => false,
-        }
-    }
-
-    /// The async task has exited.
-    pub const fn is_shut_down(&self) -> bool {
-        match self {
-            Status::ShutDown => true,
-            _ => false,
-        }
-    }
-}
 impl Default for Status {
     fn default() -> Self {
         Status::NeverConnected
@@ -853,20 +804,20 @@ impl Default for Status {
 }
 
 pub(crate) type ObservableStatus =
-    crate::observable_status::ObservableStatus<Status, Arc<tungstenite::Error>>;
+    crate::rust::observable_status::ObservableStatus<Status, Arc<tungstenite::Error>>;
 
 #[must_use]
 struct Connected {
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
     heartbeat: Interval,
     sent_heartbeat_reference: Option<Reference>,
-    join_by_reference_by_topic: HashMap<Topic, HashMap<JoinReference, Join>>,
+    join_by_reference_by_topic: HashMap<Arc<Topic>, HashMap<JoinReference, Join>>,
     join_timeouts: FuturesUnordered<Pin<Box<dyn Future<Output = JoinKey> + Send + Sync + 'static>>>,
-    broadcast_by_topic: HashMap<Topic, broadcast::Sender<Broadcast>>,
+    broadcast_by_topic: HashMap<Arc<Topic>, broadcast::Sender<Broadcast>>,
     joined_channel_txs_by_join_reference_by_topic:
-        HashMap<Topic, HashMap<JoinReference, JoinedChannelSenders>>,
+        HashMap<Arc<Topic>, HashMap<JoinReference, JoinedChannelSenders>>,
     reply_tx_by_reference_by_join_reference_by_topic: HashMap<
-        Topic,
+        Arc<Topic>,
         HashMap<
             JoinReference,
             HashMap<Reference, oneshot::Sender<Result<Payload, channel::CallError>>>,
@@ -901,7 +852,7 @@ impl Connected {
         }
     }
 
-    fn remove_join(&mut self, topic: Topic, join_reference: JoinReference) -> Option<Join> {
+    fn remove_join(&mut self, topic: Arc<Topic>, join_reference: JoinReference) -> Option<Join> {
         Self::remove_by_reference_by_topic(
             &mut self.join_by_reference_by_topic,
             topic,
@@ -972,7 +923,7 @@ impl Connected {
 
     fn remove_joined_channel_txs(
         &mut self,
-        topic: Topic,
+        topic: Arc<Topic>,
         join_reference: JoinReference,
     ) -> Option<JoinedChannelSenders> {
         Self::remove_by_reference_by_topic(
@@ -984,7 +935,7 @@ impl Connected {
 
     fn remove_reply_tx(
         &mut self,
-        topic: Topic,
+        topic: Arc<Topic>,
         join_reference: JoinReference,
         reference: Reference,
     ) -> Option<oneshot::Sender<Result<Payload, channel::CallError>>> {
@@ -1023,8 +974,8 @@ impl Connected {
     }
 
     fn remove_by_reference_by_topic<V, R>(
-        value_by_reference_by_topic: &mut HashMap<Topic, HashMap<R, V>>,
-        topic: Topic,
+        value_by_reference_by_topic: &mut HashMap<Arc<Topic>, HashMap<R, V>>,
+        topic: Arc<Topic>,
         reference: R,
     ) -> Option<V>
     where
@@ -1165,7 +1116,7 @@ impl Reconnect {
 }
 
 struct JoinKey {
-    topic: Topic,
+    topic: Arc<Topic>,
     join_reference: JoinReference,
 }
 
@@ -1191,14 +1142,14 @@ pub(crate) enum Disconnected {
     Reconnect,
 }
 
-pub(super) struct ChannelSpawn {
+pub(crate) struct ChannelSpawn {
     pub socket: Arc<Socket>,
-    pub topic: SharedStr,
+    pub topic: Arc<Topic>,
     pub payload: Option<Payload>,
     pub sender: oneshot::Sender<Channel>,
 }
 
-pub(super) enum StateCommand {
+pub(crate) enum StateCommand {
     Connect(Connect),
     Disconnect {
         disconnected_tx: oneshot::Sender<()>,
@@ -1207,7 +1158,7 @@ pub(super) enum StateCommand {
     Shutdown,
 }
 
-pub(super) enum ChannelStateCommand {
+pub(crate) enum ChannelStateCommand {
     /// Tells the client to join `channel` to its desired topic, and then:
     ///
     /// * If joining was successful, notify the channel listener via `on_join`, and then tell
@@ -1223,7 +1174,7 @@ pub(super) enum ChannelStateCommand {
 #[doc(hidden)]
 pub(crate) struct Join {
     /// [Channel] topic
-    pub topic: Topic,
+    pub topic: Arc<Topic>,
     /// The [Channel] join reference
     pub join_reference: JoinReference,
     /// The params sent when `topic` is joined.
@@ -1249,7 +1200,7 @@ impl Debug for Join {
 #[doc(hidden)]
 #[derive(Debug)]
 pub(crate) struct Leave {
-    pub topic: Topic,
+    pub topic: Arc<Topic>,
     pub join_reference: JoinReference,
     pub left_tx: oneshot::Sender<Result<(), LeaveError>>,
 }
@@ -1257,7 +1208,7 @@ pub(crate) struct Leave {
 /// This enum encodes the various commands that can be used to control the socket listener
 #[doc(hidden)]
 #[derive(Debug)]
-pub(super) enum ChannelSendCommand {
+pub(crate) enum ChannelSendCommand {
     /// Tells the client to send `push`, and if successful, send the reply to `on_reply`
     Call(Call),
     /// Tells the client to send `push`, but to ignore any replies
@@ -1265,15 +1216,15 @@ pub(super) enum ChannelSendCommand {
 }
 
 #[derive(Debug)]
-pub(super) struct Call {
-    pub topic: Topic,
+pub(crate) struct Call {
+    pub topic: Arc<Topic>,
     pub join_reference: JoinReference,
     pub channel_call: channel::Call,
 }
 
 #[derive(Debug)]
-pub(super) struct Cast {
-    pub topic: Topic,
+pub(crate) struct Cast {
+    pub topic: Arc<Topic>,
     pub join_reference: JoinReference,
     pub event_payload: EventPayload,
 }
@@ -1292,25 +1243,6 @@ impl Connect {
             attempts: 0,
         }
     }
-}
-
-/// Error from [Socket::shutdown] or from the server itself that caused the [Socket] to shutdown.
-#[derive(Debug, thiserror::Error)]
-pub enum ShutdownError {
-    /// The async task was already joined by another call, so the [Result] or panic from the async
-    /// task can't be reported here.
-    #[error("listener task was already joined once from another caller")]
-    AlreadyJoined,
-    /// [tungstenite::error::UrlError] with the `url` passed to [Socket::spawn].  This can include
-    /// incorrect scheme ([tungstenite::error::UrlError::UnsupportedUrlScheme]).
-    #[error("URL error: {0}")]
-    Url(#[from] UrlError),
-    /// HTTP error response from server.
-    #[error("HTTP error: {}", .0.status())]
-    Http(Response<Option<String>>),
-    /// HTTP format error.
-    #[error("HTTP format error: {0}")]
-    HttpFormat(#[from] http::Error),
 }
 
 #[inline]

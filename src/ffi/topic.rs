@@ -1,11 +1,20 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
-use flexstr::{SharedStr, ToSharedStr};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[repr(transparent)]
-pub struct Topic(SharedStr);
+/// A [Channel](crate::Channel) topic.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, uniffi::Object)]
+pub struct Topic(String);
+
+#[uniffi::export]
+impl Topic {
+    /// Create [Topic] from string.
+    #[uniffi::constructor]
+    pub fn from_string(topic: String) -> Arc<Self> {
+        Arc::new(Topic(topic))
+    }
+}
 
 impl Debug for Topic {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -23,23 +32,12 @@ impl Display for Topic {
 }
 impl From<&str> for Topic {
     fn from(s: &str) -> Self {
-        s.to_shared_str().into()
-    }
-}
-impl From<SharedStr> for Topic {
-    fn from(shared_str: SharedStr) -> Self {
-        Topic(shared_str)
+        s.to_string().into()
     }
 }
 impl From<String> for Topic {
     fn from(string: String) -> Self {
-        string.to_shared_str().into()
-    }
-}
-
-impl From<Topic> for SharedStr {
-    fn from(topic: Topic) -> Self {
-        topic.0
+        Self(string)
     }
 }
 

@@ -1,0 +1,5 @@
+[bindings.kotlin.custom_types.Url]
+type_name = "URL"
+imports = [ "java.net.URL" ]
+into_custom = "URL({})"
+from_custom = "{}.toString()"

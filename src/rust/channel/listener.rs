@@ -13,17 +13,20 @@ use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::http::Response;
 
-use crate::channel::EventPayload;
-use crate::join_reference::JoinReference;
-use crate::message::{Broadcast, Push};
-use crate::socket::listener::{Connectivity, Disconnected};
-use crate::topic::Topic;
-use crate::{channel, socket, Event, JoinError, Payload, PhoenixEvent, Socket};
+use crate::ffi::channel::ChannelShutdownError;
+use crate::ffi::message::PhoenixEvent;
+use crate::ffi::socket::Socket;
+use crate::ffi::topic::Topic;
+use crate::rust::join_reference::JoinReference;
+use crate::rust::message::{Broadcast, Push};
+use crate::rust::message::{Event, EventPayload, Payload};
+use crate::rust::socket;
+use crate::rust::socket::listener::{Connectivity, Disconnected};
 
-pub(super) struct Listener {
+pub(crate) struct Listener {
     socket: Arc<Socket>,
     socket_connectivity_rx: broadcast::Receiver<Connectivity>,
-    topic: Topic,
+    topic: Arc<Topic>,
     payload: Payload,
     channel_status: ObservableStatus,
     shutdown_rx: oneshot::Receiver<()>,
@@ -34,10 +37,10 @@ pub(super) struct Listener {
     join_reference: JoinReference,
 }
 impl Listener {
-    pub(super) fn spawn(
+    pub(crate) fn spawn(
         socket: Arc<Socket>,
         socket_connectivity_rx: broadcast::Receiver<Connectivity>,
-        topic: Topic,
+        topic: Arc<Topic>,
         payload: Payload,
         state: State,
         channel_status: ObservableStatus,
@@ -45,7 +48,7 @@ impl Listener {
         event_payload_tx: broadcast::Sender<EventPayload>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         send_command_rx: mpsc::Receiver<SendCommand>,
-    ) -> JoinHandle<Result<(), ShutdownError>> {
+    ) -> JoinHandle<Result<(), ChannelShutdownError>> {
         let listener = Self::init(
             socket,
             socket_connectivity_rx,
@@ -65,7 +68,7 @@ impl Listener {
     fn init(
         socket: Arc<Socket>,
         socket_connectivity_rx: broadcast::Receiver<Connectivity>,
-        topic: Topic,
+        topic: Arc<Topic>,
         payload: Payload,
         state: State,
         channel_status: ObservableStatus,
@@ -89,7 +92,7 @@ impl Listener {
         }
     }
 
-    async fn listen(mut self) -> Result<(), ShutdownError> {
+    async fn listen(mut self) -> Result<(), ChannelShutdownError> {
         debug!(
             "Channel listener started for topic {} will join as {}",
             &self.topic, &self.join_reference
@@ -197,7 +200,7 @@ impl Listener {
         &self,
         state: State,
         state_command: StateCommand,
-    ) -> Result<State, ShutdownError> {
+    ) -> Result<State, ChannelShutdownError> {
         match state_command {
             StateCommand::Join {
                 created_at,
@@ -214,7 +217,7 @@ impl Listener {
         created_at: Instant,
         timeout: Duration,
         channel_joined_tx: oneshot::Sender<Result<(), JoinError>>,
-    ) -> Result<State, ShutdownError> {
+    ) -> Result<State, ChannelShutdownError> {
         match state {
             State::WaitingForSocketToConnect { .. } => unreachable!(),
             State::WaitingToJoin { .. } | State::Leaving { .. } | State::Left { .. } => {
@@ -255,7 +258,7 @@ impl Listener {
         created_at: Instant,
         timeout: Duration,
         channel_joined_tx: oneshot::Sender<Result<(), JoinError>>,
-    ) -> Result<State, ShutdownError> {
+    ) -> Result<State, ChannelShutdownError> {
         let deadline = created_at + timeout;
         let rejoin = Rejoin {
             join_timeout: timeout,
@@ -279,7 +282,7 @@ impl Listener {
             Result<JoinedChannelReceivers, socket::JoinError>,
             oneshot::error::RecvError,
         >,
-    ) -> Result<State, ShutdownError> {
+    ) -> Result<State, ChannelShutdownError> {
         match joined_result_result {
             Ok(joined_result) => Ok(self.joined_result_received(joining, joined_result)),
             Err(_) => Err(Self::socket_shutdown(State::Joining(joining))),
@@ -330,7 +333,7 @@ impl Listener {
         next_state
     }
 
-    async fn rejoin(&self, state: State, rejoin: Rejoin) -> Result<State, ShutdownError> {
+    async fn rejoin(&self, state: State, rejoin: Rejoin) -> Result<State, ChannelShutdownError> {
         self.socket_join(state, Instant::now(), rejoin, vec![])
             .await
     }
@@ -341,7 +344,7 @@ impl Listener {
         created_at: Instant,
         rejoin: Rejoin,
         channel_joined_txs: Vec<oneshot::Sender<Result<(), JoinError>>>,
-    ) -> Result<State, ShutdownError> {
+    ) -> Result<State, ChannelShutdownError> {
         match self
             .socket
             .join(
@@ -377,7 +380,7 @@ impl Listener {
         }
     }
 
-    fn socket_shutdown(state: State) -> ShutdownError {
+    fn socket_shutdown(state: State) -> ChannelShutdownError {
         match state {
             State::WaitingForSocketToConnect { .. }
             | State::WaitingToJoin { .. }
@@ -396,7 +399,7 @@ impl Listener {
             }) => State::send_to_channel_txs(channel_left_txs, Err(LeaveError::SocketShutdown)),
         }
 
-        ShutdownError::SocketShutdown
+        ChannelShutdownError::SocketShutdown
     }
 
     fn push_received(&self, joined: Joined, push: Push) -> State {
@@ -506,7 +509,7 @@ impl Listener {
         {
             Ok(()) => State::Joined(joined),
             Err(cast_error) => match cast_error {
-                socket::CastError::Shutdown => State::ShuttingDown,
+                socket::CastError::Shutdown(_) => State::ShuttingDown,
             },
         }
     }
@@ -519,7 +522,7 @@ impl Listener {
         {
             Ok(()) => State::Joined(joined),
             Err(call_error) => match call_error {
-                socket::CallError::Shutdown => State::ShuttingDown,
+                socket::CallError::Shutdown(_) => State::ShuttingDown,
             },
         }
     }
@@ -529,7 +532,7 @@ impl Listener {
     }
 }
 
-pub(super) enum StateCommand {
+pub(crate) enum StateCommand {
     Join {
         /// When the join was created
         created_at: Instant,
@@ -571,21 +574,19 @@ impl From<mpsc::error::SendError<StateCommand>> for LeaveError {
         LeaveError::Shutdown
     }
 }
-impl From<socket::listener::ShutdownError> for LeaveError {
-    fn from(shutdown_error: socket::listener::ShutdownError) -> Self {
+impl From<socket::ShutdownError> for LeaveError {
+    fn from(shutdown_error: socket::ShutdownError) -> Self {
         match shutdown_error {
-            socket::listener::ShutdownError::AlreadyJoined => LeaveError::SocketShutdown,
-            socket::listener::ShutdownError::Url(url_error) => LeaveError::Url(Arc::new(url_error)),
-            socket::listener::ShutdownError::Http(response) => LeaveError::Http(Arc::new(response)),
-            socket::listener::ShutdownError::HttpFormat(error) => {
-                LeaveError::HttpFormat(Arc::new(error))
-            }
+            socket::ShutdownError::AlreadyJoined => LeaveError::SocketShutdown,
+            socket::ShutdownError::Url(url_error) => LeaveError::Url(Arc::new(url_error)),
+            socket::ShutdownError::Http(response) => LeaveError::Http(Arc::new(response)),
+            socket::ShutdownError::HttpFormat(error) => LeaveError::HttpFormat(Arc::new(error)),
         }
     }
 }
 
 #[derive(Debug)]
-pub(super) enum SendCommand {
+pub(crate) enum SendCommand {
     Cast(EventPayload),
     Call(Call),
 }
@@ -593,7 +594,7 @@ pub(super) enum SendCommand {
 #[derive(Debug)]
 pub(crate) struct Call {
     pub event_payload: EventPayload,
-    pub reply_tx: oneshot::Sender<Result<Payload, channel::CallError>>,
+    pub reply_tx: oneshot::Sender<Result<Payload, crate::rust::channel::CallError>>,
 }
 
 #[must_use]
@@ -914,7 +915,7 @@ impl Status {
     }
 }
 
-pub type ObservableStatus = crate::observable_status::ObservableStatus<Status, Arc<Payload>>;
+pub type ObservableStatus = crate::rust::observable_status::ObservableStatus<Status, Arc<Payload>>;
 
 #[doc(hidden)]
 #[derive(Debug)]
@@ -1004,10 +1005,33 @@ impl Leaving {
     }
 }
 
-#[derive(Copy, Clone, Debug, thiserror::Error, PartialEq, Eq)]
-pub enum ShutdownError {
-    #[error("socket already shutdown")]
-    SocketShutdown,
-    #[error("listener task was already joined once from another caller")]
-    AlreadyJoined,
+/// Errors when calling [Channel::join].
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum JoinError {
+    /// Timeout joining channel
+    #[error("timeout joining channel")]
+    Timeout,
+    /// [Channel] shutting down because [Channel::shutdown] was called.
+    #[error("channel shutting down")]
+    ShuttingDown,
+    /// The async task was already joined by another call, so the [Result] or panic from the async
+    /// task can't be reported here.
+    #[error("channel already shutdown")]
+    Shutdown,
+    /// The [Socket] was disconnected after [Channel::join] was called while waiting for a response
+    /// from the server.
+    #[error("socket was disconnect while channel was being joined")]
+    SocketDisconnected,
+    /// [Channel::leave] was called while awaiting a response from the server to a previous
+    /// [Channel::join]
+    #[error("leaving channel while still waiting to see if join succeeded")]
+    LeavingWhileJoining,
+    /// The [Channel] is currently waiting until [Instant] to rejoin to not overload the server, so
+    /// can't honor the explicit [Channel::join].
+    #[error("waiting to rejoin")]
+    WaitingToRejoin(Instant),
+    /// The [Channel::payload] was rejected when attempting to [Channel::join] or automatically
+    /// rejoin [Channel::topic].
+    #[error("server rejected join")]
+    Rejected(Arc<Payload>),
 }
