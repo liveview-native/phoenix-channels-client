@@ -1,6 +1,6 @@
 name: macos
 
-on: [pull_request, push]
+on: pull_request
 
 env:
   CARGO_TERM_COLOR: always
