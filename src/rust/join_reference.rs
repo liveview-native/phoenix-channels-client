@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use flexstr::SharedStr;
 use serde::{Deserialize, Serialize};
 
-use crate::reference::Reference;
+use crate::rust::reference::Reference;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]

@@ -1,6 +1,6 @@
 use std::fmt;
 use std::mem;
-use std::str::{self, FromStr};
+use std::str;
 use std::sync::Arc;
 
 use bytes::{BufMut, Bytes};
@@ -8,10 +8,11 @@ use flexstr::SharedStr;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message as SocketMessage;
 
-use crate::join_reference::JoinReference;
-use crate::reference::Reference;
-use crate::topic::Topic;
-use crate::EventPayload;
+use crate::ffi;
+use crate::ffi::message::PhoenixEvent;
+use crate::ffi::topic::Topic;
+use crate::rust::join_reference::JoinReference;
+use crate::rust::reference::Reference;
 
 /// Occurs when decoding messages received from the server
 #[doc(hidden)]
@@ -78,7 +79,7 @@ pub struct Control {
 #[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct Broadcast {
-    pub topic: Topic,
+    pub topic: Arc<Topic>,
     pub event_payload: EventPayload,
 }
 
@@ -86,7 +87,7 @@ pub struct Broadcast {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct Reply {
-    pub topic: Topic,
+    pub topic: Arc<Topic>,
     /// The event for this message type is always `PhoenixEvent::Reply`
     pub event: Event,
     pub payload: Payload,
@@ -104,7 +105,7 @@ pub struct Reply {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct Push {
-    pub topic: Topic,
+    pub topic: Arc<Topic>,
     pub event_payload: EventPayload,
     /// The unique reference of the channel member this message is being sent to/from
     ///
@@ -112,6 +113,26 @@ pub struct Push {
     pub join_reference: JoinReference,
     /// A unique ID for this message that is used for associating messages with their replies.
     pub reference: Option<Reference>,
+}
+
+/// The [EventPayload::event] sent by the server along with the [EventPayload::payload] for that
+/// [EventPayload::event].
+#[derive(Clone, Debug)]
+pub struct EventPayload {
+    /// The [Event] name.
+    pub event: Event,
+    /// The data sent for the [EventPayload::event].
+    pub payload: Payload,
+}
+impl From<Broadcast> for EventPayload {
+    fn from(broadcast: Broadcast) -> Self {
+        broadcast.event_payload
+    }
+}
+impl From<Push> for EventPayload {
+    fn from(push: Push) -> Self {
+        push.event_payload
+    }
 }
 
 impl Message {
@@ -131,7 +152,7 @@ impl Message {
         let (join_ref, reference, topic, event, payload_bytes): (
             SharedStr,
             SharedStr,
-            SharedStr,
+            String,
             String,
             Bytes,
         ) = match self {
@@ -152,7 +173,7 @@ impl Message {
             }) => (
                 "".into(),
                 "".into(),
-                topic.into(),
+                topic.to_string(),
                 event_payload.event.to_string(),
                 Payload::clone(&event_payload.payload)
                     .into_binary()
@@ -168,7 +189,7 @@ impl Message {
             }) => (
                 join_reference.into(),
                 reference.into(),
-                topic.into(),
+                topic.to_string(),
                 event.into(),
                 payload.into_binary().unwrap(),
             ),
@@ -183,7 +204,7 @@ impl Message {
                     .as_ref()
                     .map(From::from)
                     .unwrap_or_else(Default::default),
-                topic.into(),
+                topic.to_string(),
                 event_payload.event.to_string(),
                 Payload::clone(&event_payload.payload)
                     .into_binary()
@@ -277,7 +298,7 @@ impl Message {
                 vec![
                     Value::Null,
                     Value::Null,
-                    serde_json::to_value(topic).unwrap(),
+                    serde_json::to_value(topic.as_ref()).unwrap(),
                     event_payload.event.into(),
                     Value::clone(event_payload.payload.value().unwrap()),
                 ]
@@ -293,7 +314,7 @@ impl Message {
                 vec![
                     serde_json::to_value(join_reference).unwrap(),
                     serde_json::to_value(reference).unwrap(),
-                    serde_json::to_value(topic).unwrap(),
+                    serde_json::to_value(topic.as_ref()).unwrap(),
                     event.into(),
                     Value::clone(payload.value().unwrap()),
                 ]
@@ -307,7 +328,7 @@ impl Message {
                 vec![
                     serde_json::to_value(join_reference).unwrap(),
                     serde_json::to_value(reference).unwrap(),
-                    serde_json::to_value(topic).unwrap(),
+                    serde_json::to_value(topic.as_ref()).unwrap(),
                     event_payload.event.into(),
                     Value::clone(event_payload.payload.value().unwrap()),
                 ]
@@ -334,7 +355,7 @@ impl Message {
                     }
                 };
                 let topic = match fields.pop().unwrap() {
-                    Value::String(s) => s.into(),
+                    Value::String(s) => Topic::from_string(s),
                     other => {
                         return Err(MessageDecodingError::Invalid(format!(
                             "expected topic to be a string, got: {:#?}",
@@ -450,11 +471,13 @@ impl Message {
                     take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
                 let event_size =
                     take_first(&mut bytes).ok_or(MessageDecodingError::UnexpectedEof)? as usize;
-                let topic = str::from_utf8(
-                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
-                )
-                .map_err(MessageDecodingError::InvalidUtf8)?
-                .into();
+                let topic = Topic::from_string(
+                    str::from_utf8(
+                        take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
+                    )
+                    .map_err(MessageDecodingError::InvalidUtf8)?
+                    .to_string(),
+                );
                 let event = str::from_utf8(
                     take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
@@ -485,11 +508,13 @@ impl Message {
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?
                 .into();
-                let topic = str::from_utf8(
-                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
-                )
-                .map_err(MessageDecodingError::InvalidUtf8)?
-                .into();
+                let topic = Topic::from_string(
+                    str::from_utf8(
+                        take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
+                    )
+                    .map_err(MessageDecodingError::InvalidUtf8)?
+                    .to_string(),
+                );
                 let status = str::from_utf8(
                     take(&mut bytes, status_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
@@ -518,11 +543,13 @@ impl Message {
                 )
                 .map_err(MessageDecodingError::InvalidUtf8)?
                 .into();
-                let topic = str::from_utf8(
-                    take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
-                )
-                .map_err(MessageDecodingError::InvalidUtf8)?
-                .into();
+                let topic = Topic::from_string(
+                    str::from_utf8(
+                        take(&mut bytes, topic_size).ok_or(MessageDecodingError::UnexpectedEof)?,
+                    )
+                    .map_err(MessageDecodingError::InvalidUtf8)?
+                    .to_string(),
+                );
                 let event = str::from_utf8(
                     take(&mut bytes, event_size).ok_or(MessageDecodingError::UnexpectedEof)?,
                 )
@@ -645,7 +672,6 @@ pub enum Payload {
     /// This payload type is used for binary messages
     Binary(Bytes),
 }
-
 impl Payload {
     /// * `true` - this is a JSON payload.
     /// * `false` - this is a binary payload.
@@ -712,6 +738,14 @@ impl From<Vec<u8>> for Payload {
         Self::Binary(byte_vec.into())
     }
 }
+impl From<ffi::message::Payload> for Payload {
+    fn from(ffi_payload: ffi::message::Payload) -> Self {
+        match ffi_payload {
+            ffi::message::Payload::JSON { json } => Self::Value(Arc::new(json.into())),
+            ffi::message::Payload::Binary { bytes } => Self::Binary(bytes.into()),
+        }
+    }
+}
 impl Default for Payload {
     fn default() -> Self {
         Payload::Value(Arc::new(Value::Object(serde_json::Map::new())))
@@ -737,6 +771,14 @@ pub enum Event {
     Phoenix(PhoenixEvent),
     /// Represents a user-defined event
     User(String),
+}
+impl From<ffi::message::Event> for Event {
+    fn from(ffi_event: ffi::message::Event) -> Self {
+        match ffi_event {
+            ffi::message::Event::Phoenix { phoenix } => Self::Phoenix(phoenix.into()),
+            ffi::message::Event::User { user } => Self::User(user),
+        }
+    }
 }
 impl From<Event> for String {
     fn from(event: Event) -> Self {
@@ -800,50 +842,6 @@ impl fmt::Display for Event {
     }
 }
 
-/// Represents special events related to management of Phoenix channels.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PhoenixEvent {
-    /// Used when sending a message to join a channel
-    Join = 0,
-    /// Used when sending a message to leave a channel
-    Leave,
-    /// Sent/received when a channel is closed
-    Close,
-    /// Sent/received with replies
-    Reply,
-    /// Sent by the server when an error occurs
-    Error,
-    /// Sent/received as a keepalive for the underlying socket
-    Heartbeat,
-}
-impl fmt::Display for PhoenixEvent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Join => f.write_str("phx_join"),
-            Self::Leave => f.write_str("phx_leave"),
-            Self::Close => f.write_str("phx_close"),
-            Self::Reply => f.write_str("phx_reply"),
-            Self::Error => f.write_str("phx_error"),
-            Self::Heartbeat => f.write_str("heartbeat"),
-        }
-    }
-}
-impl FromStr for PhoenixEvent {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "phx_join" => Ok(Self::Join),
-            "phx_leave" => Ok(Self::Leave),
-            "phx_close" => Ok(Self::Close),
-            "phx_error" => Ok(Self::Error),
-            "phx_reply" => Ok(Self::Reply),
-            "heartbeat" => Ok(Self::Heartbeat),
-            _ => Err(()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -886,7 +884,7 @@ mod tests {
     fn message_encode_with_broadcast_with_binary_payload() {
         assert_eq!(
             Message::Broadcast(Broadcast {
-                topic: "channel_topic".into(),
+                topic: Topic::from_string("channel_topic".to_string()),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
                     payload: binary_payload()
@@ -905,7 +903,7 @@ mod tests {
     fn message_encode_with_broadcast_with_json_payload() {
         assert_eq!(
             Message::Broadcast(Broadcast {
-                topic: "channel_topic".into(),
+                topic: Topic::from_string("channel_topic".to_string()),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
                     payload: json_payload()
@@ -923,7 +921,7 @@ mod tests {
     fn message_encode_with_reply_with_binary_payload() {
         assert_eq!(
             Message::Reply(Reply {
-                topic: "channel_topic".into(),
+                topic: Topic::from_string("channel_topic".to_string()),
                 event: Event::User("event_name".to_string()),
                 payload: binary_payload(),
                 join_reference: "join_reference".into(),
@@ -945,7 +943,7 @@ mod tests {
     fn message_encode_with_reply_with_json_payload() {
         assert_eq!(
             Message::Reply(Reply {
-                topic: "channel_topic".into(),
+                topic: Topic::from_string("channel_topic".to_string()),
                 event: Event::User("event_name".to_string()),
                 payload: json_payload(),
                 join_reference: "join_reference".into(),
@@ -962,7 +960,7 @@ mod tests {
     fn message_encode_with_push_with_binary_payload() {
         assert_eq!(
             Message::Push(Push {
-                topic: "channel_topic".into(),
+                topic: Topic::from_string("channel_topic".to_string()),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
                     payload: binary_payload(),
@@ -985,7 +983,7 @@ mod tests {
     fn message_encode_with_push_with_json_payload() {
         assert_eq!(
             Message::Push(Push {
-                topic: "channel_topic".into(),
+                topic: Topic::from_string("channel_topic".to_string()),
                 event_payload: EventPayload {
                     event: Event::User("event_name".to_string()),
                     payload: json_payload()
