@@ -187,7 +187,7 @@ jobs:
           echo "Starting ADB server"
           ${ANDROID_HOME}/platform-tools/adb start-server
           echo "Starting Emulator"
-          ${ANDROID_HOME}/emulator/emulator -avd AVD -netdelay none -netspeed full &
+          ${ANDROID_HOME}/emulator/emulator -avd AVD -netdelay none -netspeed full -no-boot-anim -no-window -noaudio -accel auto -verbose &
           ${ANDROID_HOME}/platform-tools/adb wait-for-device
           echo "Launching Test Server"
           cd tests/support/test_server && mix phx.server &
