@@ -72,6 +72,7 @@ jobs:
         uses: actions/setup-java@v3
         with:
           java-version: 17
+          distribution: 'temurin'
       - name: Cache target
         id: cache-target
         uses: actions/cache@v3
