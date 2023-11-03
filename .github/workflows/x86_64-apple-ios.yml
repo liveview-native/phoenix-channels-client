@@ -74,7 +74,7 @@ jobs:
       - name: Copy integration tests to app bundle
         run: cp `find target/x86_64-apple-ios/debug/deps/ -perm +111 -type f -name "integration_test-*"` tests/support/app/integration_test
       - name: Start Simulator
-        uses: futureware-tech/simulator-action@v2
+        uses: futureware-tech/simulator-action@v3
         with:
           os: 'iOS'
       - name: Install integration tests into Simulator
