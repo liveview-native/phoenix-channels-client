@@ -454,6 +454,12 @@ pub enum ChannelJoinError {
     /// task can't be reported here.
     #[error("channel already shutdown")]
     Shutdown,
+    /// The [Socket](crate::Socket) the channel is on shutdown
+    #[error("socket shutdown: {socket_shutdown_error}")]
+    SocketShutdown {
+        /// The error that shutdown the [Socket](crate::Socket)
+        socket_shutdown_error: SocketShutdownError,
+    },
     /// The [Socket](crate::Socket) was disconnected after [Channel::join] was called while waiting
     /// for a response from the server.
     #[error("socket was disconnect while channel was being joined")]
@@ -483,6 +489,11 @@ impl From<rust::channel::listener::JoinError> for ChannelJoinError {
             rust::channel::listener::JoinError::Timeout => Self::Timeout,
             rust::channel::listener::JoinError::ShuttingDown => Self::ShuttingDown,
             rust::channel::listener::JoinError::Shutdown => Self::Shutdown,
+            rust::channel::listener::JoinError::SocketShutdown(shutdown_error) => {
+                Self::SocketShutdown {
+                    socket_shutdown_error: shutdown_error.as_ref().into(),
+                }
+            }
             rust::channel::listener::JoinError::SocketDisconnected => Self::SocketDisconnected,
             rust::channel::listener::JoinError::LeavingWhileJoining => Self::LeavingWhileJoining,
             rust::channel::listener::JoinError::WaitingToRejoin(until) => Self::WaitingToRejoin {
@@ -701,8 +712,10 @@ pub enum LeaveError {
     ShuttingDown,
     #[error("channel already shutdown")]
     Shutdown,
-    #[error("socket already shutdown")]
-    SocketShutdown,
+    #[error("socket shutdown: {socket_shutdown_error}")]
+    SocketShutdown {
+        socket_shutdown_error: SocketShutdownError,
+    },
     #[error("web socket error {web_socket_error:?}")]
     WebSocketError {
         web_socket_error: web_socket::error::WebSocketError,
@@ -739,7 +752,11 @@ impl From<rust::channel::LeaveError> for LeaveError {
             rust::channel::LeaveError::Timeout => Self::Timeout,
             rust::channel::LeaveError::ShuttingDown => Self::ShuttingDown,
             rust::channel::LeaveError::Shutdown => Self::Shutdown,
-            rust::channel::LeaveError::SocketShutdown => Self::SocketShutdown,
+            rust::channel::LeaveError::SocketShutdown(socket_shutdown_error) => {
+                Self::SocketShutdown {
+                    socket_shutdown_error: socket_shutdown_error.as_ref().into(),
+                }
+            }
             rust::channel::LeaveError::WebSocketError(web_socket_error) => Self::WebSocketError {
                 web_socket_error: web_socket_error.as_ref().into(),
             },
@@ -747,15 +764,6 @@ impl From<rust::channel::LeaveError> for LeaveError {
                 rejection: rejection.into(),
             },
             rust::channel::LeaveError::JoinBeforeLeft => Self::JoinBeforeLeft,
-            rust::channel::LeaveError::Url(url_error) => Self::Url {
-                url_error: url_error.to_string(),
-            },
-            rust::channel::LeaveError::Http(response) => Self::Http {
-                response: response.as_ref().into(),
-            },
-            rust::channel::LeaveError::HttpFormat(error) => Self::HttpFormat {
-                error: error.as_ref().into(),
-            },
         }
     }
 }

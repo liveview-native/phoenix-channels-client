@@ -27,6 +27,11 @@ pub enum HttpError {
     #[error("invalid header value")]
     HeaderValue,
 }
+impl From<TungsteniteError> for HttpError {
+    fn from(rust_error: TungsteniteError) -> Self {
+        (&rust_error).into()
+    }
+}
 impl From<&TungsteniteError> for HttpError {
     fn from(rust_error: &TungsteniteError) -> Self {
         let rust_error_ref = rust_error.get_ref();
@@ -87,6 +92,11 @@ pub struct Response {
     pub status_code: u16,
     pub headers: HashMap<String, Vec<String>>,
     pub body: Option<String>,
+}
+impl From<TungsteniteResponse<Option<String>>> for Response {
+    fn from(rust_response: TungsteniteResponse<Option<String>>) -> Self {
+        (&rust_response).into()
+    }
 }
 impl From<&TungsteniteResponse<Option<String>>> for Response {
     fn from(rust_response: &TungsteniteResponse<Option<String>>) -> Self {
