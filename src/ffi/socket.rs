@@ -582,6 +582,9 @@ pub enum SocketShutdownError {
     /// task can't be reported here.
     #[error("listener task was already joined once from another caller")]
     AlreadyJoined,
+    /// [CVE-2023-43669](https://nvd.nist.gov/vuln/detail/CVE-2023-43669) attack attempt
+    #[error("CVE-2023-43669 attack attempt due to excessive headers from server")]
+    AttackAttempt,
     /// Invalid URL.
     #[error("URL error: {url_error}")]
     Url { url_error: String },
@@ -596,6 +599,7 @@ impl From<rust::socket::ShutdownError> for SocketShutdownError {
     fn from(rust_socket_error: rust::socket::ShutdownError) -> Self {
         match rust_socket_error {
             rust::socket::ShutdownError::AlreadyJoined => Self::AlreadyJoined,
+            rust::socket::ShutdownError::AttackAttempt => Self::AttackAttempt,
             rust::socket::ShutdownError::Url(url_error) => Self::Url {
                 url_error: url_error.to_string(),
             },
@@ -612,6 +616,7 @@ impl From<&rust::socket::ShutdownError> for SocketShutdownError {
     fn from(rust_socket_error: &rust::socket::ShutdownError) -> Self {
         match rust_socket_error {
             rust::socket::ShutdownError::AlreadyJoined => Self::AlreadyJoined,
+            rust::socket::ShutdownError::AttackAttempt => Self::AttackAttempt,
             rust::socket::ShutdownError::Url(url_error) => Self::Url {
                 url_error: url_error.to_string(),
             },

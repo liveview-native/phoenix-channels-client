@@ -91,15 +91,15 @@ pub enum InvalidUri {
 pub struct Response {
     pub status_code: u16,
     pub headers: HashMap<String, Vec<String>>,
-    pub body: Option<String>,
+    pub body: Option<Vec<u8>>,
 }
-impl From<TungsteniteResponse<Option<String>>> for Response {
-    fn from(rust_response: TungsteniteResponse<Option<String>>) -> Self {
+impl From<TungsteniteResponse<Option<Vec<u8>>>> for Response {
+    fn from(rust_response: TungsteniteResponse<Option<Vec<u8>>>) -> Self {
         (&rust_response).into()
     }
 }
-impl From<&TungsteniteResponse<Option<String>>> for Response {
-    fn from(rust_response: &TungsteniteResponse<Option<String>>) -> Self {
+impl From<&TungsteniteResponse<Option<Vec<u8>>>> for Response {
+    fn from(rust_response: &TungsteniteResponse<Option<Vec<u8>>>) -> Self {
         let mut headers: HashMap<String, Vec<String>> = HashMap::new();
 
         for (header_name, header_value) in rust_response.headers().iter() {

@@ -424,8 +424,8 @@ impl Listener {
 
                 Ok(self.wait_to_reconnect_connected(connected))
             }
-            tungstenite::Error::SendQueueFull(_) => {
-                debug!("web socket send queue full: {:?}", &error);
+            tungstenite::Error::WriteBufferFull(_) => {
+                debug!("web socket write buffer full: {:?}", &error);
 
                 Ok(State::Connected(connected))
             }
@@ -433,6 +433,11 @@ impl Listener {
                 debug!("UTF-8 encoding error");
 
                 Ok(State::Connected(connected))
+            }
+            tungstenite::Error::AttackAttempt => {
+                debug!("potential CVE-2023-43669 attempt due to long headers from server");
+
+                Err(ShutdownError::AttackAttempt)
             }
             tungstenite::Error::Url(url_error) => Err(ShutdownError::Url(url_error)),
             tungstenite::Error::Http(response) => Err(ShutdownError::Http(response)),

@@ -208,13 +208,16 @@ pub enum ShutdownError {
     /// task can't be reported here.
     #[error("listener task was already joined once from another caller")]
     AlreadyJoined,
+    /// [CVE-2023-43669](https://nvd.nist.gov/vuln/detail/CVE-2023-43669) attack attempt
+    #[error("CVE-2023-43669 attack attempt due to excessive headers from server")]
+    AttackAttempt,
     /// [tungstenite::error::UrlError] with the `url` passed to [Socket::spawn].  This can include
     /// incorrect scheme ([tungstenite::error::UrlError::UnsupportedUrlScheme]).
     #[error("URL error: {0}")]
     Url(#[from] UrlError),
     /// HTTP error response from server.
     #[error("HTTP error: {}", .0.status())]
-    Http(Response<Option<String>>),
+    Http(Response<Option<Vec<u8>>>),
     /// HTTP format error.
     #[error("HTTP format error: {0}")]
     HttpFormat(#[from] http::Error),

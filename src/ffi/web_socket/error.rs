@@ -61,16 +61,19 @@ pub enum WebSocketError {
         /// Protocol violation
         protocol_error: ProtocolError,
     },
-    /// Message send queue full.
-    #[error("Send queue is full")]
-    SendQueueFull {
-        /// The [WebSocketMessage] that could not fit in the send queue.  It should be resent later or the
-        /// error needs to propagate up.
+    /// Message write buffer is full.
+    #[error("Write buffer is full")]
+    WriteBufferFull {
+        /// The [WebSocketMessage] that could not fit in the write buffer.  It should be resent
+        /// later or the error needs to propagate up.
         message: WebSocketMessage,
     },
     /// UTF coding error.
     #[error("UTF-8 encoding error")]
     Utf8,
+    /// [CVE-2023-43669](https://nvd.nist.gov/vuln/detail/CVE-2023-43669) attack attempt
+    #[error("CVE-2023-43669 attack attempt due to excessive headers from server")]
+    AttackAttempt,
     /// Invalid URL.
     #[error("URL error: {url_error}")]
     Url {
@@ -107,10 +110,11 @@ impl From<&TungsteniteError> for WebSocketError {
             TungsteniteError::Protocol(protocol_error) => Self::Protocol {
                 protocol_error: protocol_error.into(),
             },
-            TungsteniteError::SendQueueFull(message) => Self::SendQueueFull {
+            TungsteniteError::WriteBufferFull(message) => Self::WriteBufferFull {
                 message: message.into(),
             },
             TungsteniteError::Utf8 => Self::Utf8,
+            TungsteniteError::AttackAttempt => Self::AttackAttempt,
             TungsteniteError::Url(url_error) => Self::Url {
                 url_error: url_error.to_string(),
             },
