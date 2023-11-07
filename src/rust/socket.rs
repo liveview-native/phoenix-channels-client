@@ -29,7 +29,7 @@ impl Socket {
         join_reference: JoinReference,
         payload: Payload,
         deadline: Instant,
-    ) -> Result<oneshot::Receiver<Result<JoinedChannelReceivers, JoinError>>, JoinError> {
+    ) -> Result<oneshot::Receiver<Result<JoinedChannelReceivers, JoinError>>, ShutdownError> {
         let (joined_tx, joined_rx) = oneshot::channel();
 
         match self
@@ -44,7 +44,7 @@ impl Socket {
             .await
         {
             Ok(()) => Ok(joined_rx),
-            Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
+            Err(_) => Err(self.listener_shutdown().await.unwrap_err()),
         }
     }
 
@@ -163,14 +163,13 @@ pub enum JoinError {
     /// Timeout joining channel
     #[error("timeout joining channel")]
     Timeout,
-    /// The async task was already joined by another call, so the [Result] or panic from the async
-    /// task can't be reported here.
-    #[error("socket already shutdown")]
-    Shutdown,
+    /// The socket shutdown
+    #[error("socket shutdown: {0}")]
+    Shutdown(ShutdownError),
 }
 impl From<ShutdownError> for JoinError {
-    fn from(_: ShutdownError) -> Self {
-        Self::Shutdown
+    fn from(shutdown_error: ShutdownError) -> Self {
+        Self::Shutdown(shutdown_error)
     }
 }
 

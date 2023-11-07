@@ -9,9 +9,6 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, Sleep};
 use tokio_tungstenite::tungstenite;
-use tokio_tungstenite::tungstenite::error::UrlError;
-use tokio_tungstenite::tungstenite::http;
-use tokio_tungstenite::tungstenite::http::Response;
 
 use crate::ffi::channel::ChannelShutdownError;
 use crate::ffi::message::PhoenixEvent;
@@ -285,7 +282,10 @@ impl Listener {
     ) -> Result<State, ChannelShutdownError> {
         match joined_result_result {
             Ok(joined_result) => Ok(self.joined_result_received(joining, joined_result)),
-            Err(_) => Err(Self::socket_shutdown(State::Joining(joining))),
+            Err(_) => Err(Self::socket_shutdown(
+                State::Joining(joining),
+                socket::ShutdownError::AlreadyJoined,
+            )),
         }
     }
 
@@ -315,7 +315,10 @@ impl Listener {
                 }),
             ),
             Err(socket_join_error) => match socket_join_error {
-                socket::JoinError::Shutdown => (Err(JoinError::ShuttingDown), State::ShuttingDown),
+                socket::JoinError::Shutdown(shutdown_error) => (
+                    Err(JoinError::SocketShutdown(Arc::new(shutdown_error))),
+                    State::ShuttingDown,
+                ),
                 socket::JoinError::Rejected(payload) => {
                     let arc_payload = Arc::new(payload);
                     self.channel_status.error(arc_payload.clone());
@@ -376,11 +379,14 @@ impl Listener {
                     rejoin,
                 }))
             }
-            Err(_) => Err(Self::socket_shutdown(state)),
+            Err(shutdown_error) => Err(Self::socket_shutdown(state, shutdown_error)),
         }
     }
 
-    fn socket_shutdown(state: State) -> ChannelShutdownError {
+    fn socket_shutdown(
+        state: State,
+        shutdown_error: socket::ShutdownError,
+    ) -> ChannelShutdownError {
         match state {
             State::WaitingForSocketToConnect { .. }
             | State::WaitingToJoin { .. }
@@ -392,11 +398,17 @@ impl Listener {
             State::Joining(Joining {
                 channel_joined_txs, ..
             }) => {
-                State::send_to_channel_txs(channel_joined_txs, Err(JoinError::Shutdown));
+                State::send_to_channel_txs(
+                    channel_joined_txs,
+                    Err(JoinError::SocketShutdown(Arc::new(shutdown_error))),
+                );
             }
             State::Leaving(Leaving {
                 channel_left_txs, ..
-            }) => State::send_to_channel_txs(channel_left_txs, Err(LeaveError::SocketShutdown)),
+            }) => State::send_to_channel_txs(
+                channel_left_txs,
+                Err(LeaveError::SocketShutdown(Arc::new(shutdown_error))),
+            ),
         }
 
         ChannelShutdownError::SocketShutdown
@@ -553,21 +565,14 @@ pub enum LeaveError {
     ShuttingDown,
     #[error("channel already shutdown")]
     Shutdown,
-    #[error("socket already shutdown")]
-    SocketShutdown,
+    #[error("socket shutdown: {0}")]
+    SocketShutdown(Arc<socket::ShutdownError>),
     #[error("web socket error {0}")]
     WebSocketError(Arc<tungstenite::Error>),
     #[error("server rejected leave")]
     Rejected(Payload),
     #[error("A join was initiated before the server could respond if leave was successful")]
     JoinBeforeLeft,
-    #[error("URL error: {0}")]
-    Url(Arc<UrlError>),
-    #[error("HTTP error: {}", .0.status())]
-    Http(Arc<Response<Option<String>>>),
-    /// HTTP format error.
-    #[error("HTTP format error: {0}")]
-    HttpFormat(Arc<http::Error>),
 }
 impl From<mpsc::error::SendError<StateCommand>> for LeaveError {
     fn from(_: mpsc::error::SendError<StateCommand>) -> Self {
@@ -576,12 +581,7 @@ impl From<mpsc::error::SendError<StateCommand>> for LeaveError {
 }
 impl From<socket::ShutdownError> for LeaveError {
     fn from(shutdown_error: socket::ShutdownError) -> Self {
-        match shutdown_error {
-            socket::ShutdownError::AlreadyJoined => LeaveError::SocketShutdown,
-            socket::ShutdownError::Url(url_error) => LeaveError::Url(Arc::new(url_error)),
-            socket::ShutdownError::Http(response) => LeaveError::Http(Arc::new(response)),
-            socket::ShutdownError::HttpFormat(error) => LeaveError::HttpFormat(Arc::new(error)),
-        }
+        Self::SocketShutdown(Arc::new(shutdown_error))
     }
 }
 
@@ -1006,7 +1006,7 @@ impl Leaving {
 }
 
 /// Errors when calling [Channel::join].
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum JoinError {
     /// Timeout joining channel
     #[error("timeout joining channel")]
@@ -1018,6 +1018,8 @@ pub enum JoinError {
     /// task can't be reported here.
     #[error("channel already shutdown")]
     Shutdown,
+    #[error("socket shutdown: {0}")]
+    SocketShutdown(Arc<socket::ShutdownError>),
     /// The [Socket] was disconnected after [Channel::join] was called while waiting for a response
     /// from the server.
     #[error("socket was disconnect while channel was being joined")]

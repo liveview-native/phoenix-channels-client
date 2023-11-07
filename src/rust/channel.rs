@@ -7,9 +7,6 @@ use log::error;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::error::Elapsed;
 use tokio_tungstenite::tungstenite;
-use tokio_tungstenite::tungstenite::error::UrlError;
-use tokio_tungstenite::tungstenite::http;
-use tokio_tungstenite::tungstenite::http::Response;
 
 use crate::ffi::channel::Channel;
 use crate::ffi::socket::Socket;
@@ -19,7 +16,6 @@ use crate::rust::channel::listener::{Listener, ObservableStatus, SendCommand};
 use crate::rust::message::Payload;
 use crate::rust::socket;
 use crate::rust::socket::listener::Connectivity;
-use crate::rust::socket::ShutdownError;
 
 // non-uniffi::export
 impl Channel {
@@ -72,20 +68,9 @@ pub enum CastError {
     /// panic from the async task can't be reported here.
     #[error("channel already shutdown")]
     Shutdown,
-    /// The async task for the [Socket] was already joined by another call, so the [Result] or panic
-    /// from the async task can't be reported here.
-    #[error("socket already shutdown")]
-    SocketShutdown,
-    /// [tungstenite::error::UrlError] with the `url` passed to [Socket::spawn].  This can include
-    /// incorrect scheme ([tungstenite::error::UrlError::UnsupportedUrlScheme]).
-    #[error("URL error: {0}")]
-    Url(UrlError),
-    /// HTTP error response from server.
-    #[error("HTTP error: {}", .0.status())]
-    Http(Response<Option<String>>),
-    /// HTTP format error.
-    #[error("HTTP format error: {0}")]
-    HttpFormat(http::Error),
+    /// The [Socket] shutdown while casting
+    #[error("socket shutdown: {0}")]
+    SocketShutdown(socket::ShutdownError),
 }
 impl From<mpsc::error::SendError<SendCommand>> for CastError {
     fn from(_: mpsc::error::SendError<SendCommand>) -> Self {
@@ -94,12 +79,7 @@ impl From<mpsc::error::SendError<SendCommand>> for CastError {
 }
 impl From<socket::ShutdownError> for CastError {
     fn from(shutdown_error: socket::ShutdownError) -> Self {
-        match shutdown_error {
-            socket::ShutdownError::AlreadyJoined => CastError::SocketShutdown,
-            socket::ShutdownError::Url(url_error) => CastError::Url(url_error),
-            socket::ShutdownError::Http(response) => CastError::Http(response),
-            socket::ShutdownError::HttpFormat(error) => CastError::HttpFormat(error),
-        }
+        CastError::SocketShutdown(shutdown_error)
     }
 }
 
@@ -113,7 +93,7 @@ pub enum CallError {
     /// The async task for the [Socket] was already joined by another call, so the [Result] or panic
     /// from the async task can't be reported here.
     #[error("socket already shutdown")]
-    SocketShutdown(ShutdownError),
+    SocketShutdown(socket::ShutdownError),
     /// Timeout passed to [Channel::call] has expired.
     #[error("timeout making call")]
     Timeout,
@@ -143,8 +123,8 @@ impl From<oneshot::error::RecvError> for CallError {
         CallError::Shutdown
     }
 }
-impl From<ShutdownError> for CallError {
-    fn from(shutdown_error: ShutdownError) -> Self {
+impl From<socket::ShutdownError> for CallError {
+    fn from(shutdown_error: socket::ShutdownError) -> Self {
         Self::SocketShutdown(shutdown_error)
     }
 }

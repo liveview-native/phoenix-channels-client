@@ -576,7 +576,7 @@ impl From<rust::socket::ShutdownError> for DisconnectError {
 }
 
 /// Error from [Socket::shutdown] or from the server itself that caused the [Socket] to shutdown.
-#[derive(Debug, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, uniffi::Error)]
 pub enum SocketShutdownError {
     /// The async task was already joined by another call, so the [Result] or panic from the async
     /// task can't be reported here.
@@ -600,10 +600,26 @@ impl From<rust::socket::ShutdownError> for SocketShutdownError {
                 url_error: url_error.to_string(),
             },
             rust::socket::ShutdownError::Http(response) => Self::Http {
-                response: (&response).into(),
+                response: response.into(),
             },
             rust::socket::ShutdownError::HttpFormat(error) => Self::HttpFormat {
-                error: (&error).into(),
+                error: error.into(),
+            },
+        }
+    }
+}
+impl From<&rust::socket::ShutdownError> for SocketShutdownError {
+    fn from(rust_socket_error: &rust::socket::ShutdownError) -> Self {
+        match rust_socket_error {
+            rust::socket::ShutdownError::AlreadyJoined => Self::AlreadyJoined,
+            rust::socket::ShutdownError::Url(url_error) => Self::Url {
+                url_error: url_error.to_string(),
+            },
+            rust::socket::ShutdownError::Http(response) => Self::Http {
+                response: response.into(),
+            },
+            rust::socket::ShutdownError::HttpFormat(error) => Self::HttpFormat {
+                error: error.into(),
             },
         }
     }
