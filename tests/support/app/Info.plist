@@ -12,7 +12,7 @@
     <string>com.rust.tests</string>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
-      <string>x86_64</string>
+      <string>aarch64</string>
     </array>
   </dict>
 </plist>

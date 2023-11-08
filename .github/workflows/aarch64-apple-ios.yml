@@ -1,5 +1,5 @@
 # based on https://gist.github.com/learnopengles/60c945b92fbe60a0fecaa0143c35c4a for testing in simulator
-name: x86_64-apple-ios
+name: aarch64-apple-ios
 
 on: pull_request
 
@@ -11,16 +11,18 @@ env:
 jobs:
   integration_tests:
     # rust cross-compilation
-    runs-on: macos-12
+    # macos-*-xlarge is needed to get M1 chips - https://github.blog/2023-10-02-introducing-the-new-apple-silicon-powered-m1-macos-larger-runner-for-github-actions/
+    runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          target: x86_64-apple-ios
-          default: true
+          targets:
+            aarch64-apple-ios-sim
+
       - name: Set up Elixir
         run: brew install elixir
       - name: Cache Cargo
@@ -52,11 +54,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-${{ env.cache-name }}-
             ${{ runner.os }}-mix-
+
       - name: Build phoenix_channels_client
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all-targets
+        run: cargo build --all-targets
+
       - name: Install hex
         run: mix local.hex --force
       - name: Install rebar3
@@ -67,12 +68,18 @@ jobs:
       - name: Build test server
         working-directory: ./tests/support/test_server
         run: mix compile
+      - name: Run test server in background
+        working-directory: ./tests/support/test_server
+        run: mix phx.server &
+
       - name: Set linker
-        run: echo "CARGO_TARGET_X86_64_APPLE_IOS_LINKER=$PWD/tests/support/linker_shim.sh" >> $GITHUB_ENV
+        run: echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$PWD/tests/support/linker_shim.sh" >> $GITHUB_ENV
       - name: Build integration tests
-        run: cargo test --no-run --target=x86_64-apple-ios
+        run: cargo test --no-run --target=aarch64-apple-ios-sim
       - name: Copy integration tests to app bundle
-        run: cp `find target/x86_64-apple-ios/debug/deps/ -perm +111 -type f -name "integration_test-*"` tests/support/app/integration_test
+        run: |
+          cp `find target/aarch64-apple-ios-sim/debug/deps/ -perm +111 -type f -name "integration_test-*"` tests/support/app/integration_test
+          ls tests/support/app/integration_test
       - name: Start Simulator
         uses: futureware-tech/simulator-action@v3
         with:
@@ -80,12 +87,8 @@ jobs:
       - name: Install integration tests into Simulator
         run: |
           xcrun simctl install booted tests/support/app
+
       - name: Test phoenix_channel_clients
         run: |
-          echo "Launching Test Server"
-          cd tests/support/test_server && mix phx.server &
-          while ! nc -z localhost 9002; do sleep 0.1; done
-          echo "Test Server launched"
           xcrun simctl launch --console booted com.rust.tests | tee output
-          kill %1
           grep -q "test result: ok." output
