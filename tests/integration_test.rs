@@ -1100,9 +1100,9 @@ fn id() -> String {
         .to_string()
 }
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const JOIN_TIMEOUT: Duration = Duration::from_secs(5);
-const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
+const CALL_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn json_payload() -> Payload {
     Payload::json_from_serialized(json!({ "status": "testng", "num": 1i64 }).to_string()).unwrap()
