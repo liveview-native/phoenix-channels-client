@@ -155,13 +155,16 @@
 //!
 //! authorize(&id, &topic).await;
 //!
-//! match statuses.status().await? {
-//!     Ok(ChannelStatus::Joining) => (),
-//!     other => panic!("Didn't start joining after waiting instead {:?}", other)
-//! }
-//! match statuses.status().await? {
-//!     Ok(ChannelStatus::Joined)  => (),
-//!     other => panic!("Didn't join after being authorized instead {:?}", other)
+//! loop {
+//!     match statuses.status().await? {
+//!         Ok(ChannelStatus::Joining) => (),
+//!         other => panic!("Didn't start joining after waiting instead {:?}", other)
+//!     }
+//!     match statuses.status().await? {
+//!        Ok(ChannelStatus::WaitingToRejoin { until }) => println!("Will rejoin in {:?}",  until.duration_since(SystemTime::now()).unwrap_or_else(|_| Duration::from_micros(0))),
+//!        Ok(ChannelStatus::Joined) => break,
+//!        other => panic!("Didn't wait to rejoin or join {:?}", other)
+//!     }
 //! }
 //! # Ok(())
 //! # }
