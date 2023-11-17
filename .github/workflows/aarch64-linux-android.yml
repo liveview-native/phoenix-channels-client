@@ -1,5 +1,5 @@
 # based on https://github.com/xaynetwork/cargo_tai
-name: x86_64-linux-android
+name: aarch64-linux-android
 
 on: pull_request
 
@@ -7,17 +7,18 @@ env:
   ANDROID_COMMANDLINE_TOOLS_VERSION: 9477386
   ANDROID_API: 33
   ANDROID_NDK_VERSION: 25.2.9519653
-  ANDROID_SYSTEM_IMAGE_PACKAGE: system-images;android-33;google_apis_playstore;x86_64
+  ANDROID_SYSTEM_IMAGE_PACKAGE: system-images;android-33;google_apis_playstore;arm64-v8a
   OPENSSL_VERSION: 1.1.1s
   TOOLCHAIN: nightly
   CARGO_TERM_COLOR: always
   CARGO_NDK_REV: "8478e58"
-  CARGO_TAI_REV: "90f487f"
+  CARGO_DINGHY_REV: "78df50e"
 
 jobs:
   integration_tests:
     # rust cross-compilation
-    runs-on: macos-12
+    # macos-*-xlarge is needed to get M1 chips - https://github.blog/2023-10-02-introducing-the-new-apple-silicon-powered-m1-macos-larger-runner-for-github-actions/
+    runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +26,9 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-          target: x86_64-linux-android
+          target: aarch64-linux-android
           default: true
+
       - name: Cache Cargo
         uses: actions/cache@v3
         with:
@@ -34,16 +36,18 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_NDK_REV }}-${{ env.CARGO_TAI_REV }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_NDK_REV }}-${{ env.CARGO_DINGHY_REV }}-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Install cargo-ndk
         run: |
           if ! command -v cargo-ndk &> /dev/null; then
             cargo install --git  https://github.com/bbqsrc/cargo-ndk --rev ${CARGO_NDK_REV}
           fi
-      - name: Install cargo-tai
+
+      - name: Install cargo-dinghy
         run: |
-          if ! command -v cargo-tai &> /dev/null; then
-            cargo install --git https://github.com/liveview-native/cargo_tai --branch liveviewnative --rev ${CARGO_TAI_REV}
+          if ! command -v cargo-dinghy &> /dev/null; then
+            cargo install --git https://github.com/sonos/dinghy.git --force --rev ${CARGO_DINGHY_REV} cargo-dinghy
           fi
       - name: Set up Elixir
         run: brew install elixir
@@ -80,13 +84,14 @@ jobs:
           cache-name: cache-target
         with:
           path: target
-          key: ${{ github.workflow }}-${{ github.job }}-${{ env.cache-name }}-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_NDK_REV }}-${{ env.CARGO_TAI_REV }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ github.workflow }}-${{ github.job }}-${{ env.cache-name }}-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_NDK_REV }}-${{ env.CARGO_DINGHY_REV }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Build phoenix_channels_client
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --all-targets
       - name: Install hex
+
         run: mix local.hex --force
       - name: Install rebar3
         run: mix local.rebar --force
@@ -96,6 +101,10 @@ jobs:
       - name: Build test server
         working-directory: ./tests/support/test_server
         run: mix compile
+      - name: Run test server in background
+        working-directory: ./tests/support/test_server
+        run: mix phx.server &
+
       - name: Cache android
         id: cache-android
         uses: actions/cache@v3
@@ -107,6 +116,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-android-${{ env.cache-name }}-${{ env.ANDROID_COMMANDLINE_TOOLS_VERSION }}
             ${{ runner.os }}-mix-
+      - name: Install Android Command Line Tools dependencies
+        run: brew install wget
       - name: Download Android Command Line Tools
         run: |
           if [ ! -d "$HOME/android/cmdline-tools/${ANDROID_COMMANDLINE_TOOLS_VERSION}" ]; then
@@ -138,69 +149,27 @@ jobs:
                                "emulator" \
                                "ndk;${ANDROID_NDK_VERSION}" \
                                "${ANDROID_SYSTEM_IMAGE_PACKAGE}"
-      # https://github.com/sfackler/rust-openssl/issues/1402
-      - name: Add NDK clang to PATH
-        run: |
-          echo "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/darwin-x86_64/bin" >> $GITHUB_PATH
-      - name: Cache OpenSSL
-        id: cache-openssl
-        uses: actions/cache@v3
-        env:
-          cache-name: cache-openssl
-        with:
-          path: ~/openssl
-          key: ${{ runner.os }}-${{ env.cache-name }}-2-${{ env.OPENSSL_VERSION }}-${{ env.ANDROID_NDK_VERSION }}
-      - if: steps.cache-openssl.outputs.cache-hit != 'true'
-        name: Download OpenSSL
-        run: |
-          if [[ ! -d "${HOME}/openssl/${OPENSSL_VERSION}" ]]; then
-            cd $HOME
-            # clear old version if it exists
-            rm -rf openssl
-            mkdir openssl
-            cd openssl 
-            PACKAGE=openssl-${OPENSSL_VERSION}
-            wget https://www.openssl.org/source/${PACKAGE}.tar.gz -O - | tar -xz
-            mv ${PACKAGE} ${OPENSSL_VERSION}
-            ln -s ${OPENSSL_VERSION} latest
-          fi
-      - if: steps.cache-openssl.outputs.cache-hit != 'true'
-        name: Compile OpenSSL for NDK
-        run: |  
-          # if above is not true, then downloaded, but not compiled against correct NDK version
-          export CC=clang
-          cd ~/openssl/latest
-          ./Configure android64-x86_64
-          make
-      - name: Export OpenSSL for NDK
-        run: |  
-          echo "X86_64_LINUX_ANDROID_OPENSSL_INCLUDE_DIR=$HOME/openssl/latest/include" >> $GITHUB_ENV
-          echo "X86_64_LINUX_ANDROID_OPENSSL_LIB_DIR=$HOME/openssl/latest" >> $GITHUB_ENV
+
+
       - name: Create Android Virtual Device
         run: |
           echo no | \
             avdmanager create avd --force \
                                   --name AVD \
-                                  --abi google_apis_playstore/x86_64 \
+                                  --abi google_apis_playstore/arm64-v8a \
                                   --package "${ANDROID_SYSTEM_IMAGE_PACKAGE}"
-      - name: Test phoenix_channel_clients
+
+      - name: Start Android emulator
         run: |
           echo "Starting ADB server"
           ${ANDROID_HOME}/platform-tools/adb start-server
           echo "Starting Emulator"
           ${ANDROID_HOME}/emulator/emulator -avd AVD -netdelay none -netspeed full -no-boot-anim -no-window -noaudio -accel auto -verbose &
           ${ANDROID_HOME}/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do sleep 1; done; input keyevent 82'
-          echo "Launching Test Server"
-          cd tests/support/test_server && mix phx.server &
-          while ! nc -z localhost 9002; do sleep 0.1; done
-          echo "Test Server launched"
+
+      - name: Test phoenix_channel_clients
+        run: |
+          cargo-dinghy all-platforms
+          cargo-dinghy all-devices
           export RUSTFLAGS="--cfg tokio_unstable"
-          cargo-tai tests --target x86_64-linux-android \
-                          --android-api-lvl ${ANDROID_API} \
-                          --android-ndk ${ANDROID_NDK_HOME} \
-                          --android-sdk ${ANDROID_HOME} \
-                          --envs LD_LIBRARY_PATH=lib \
-                          --libraries $HOME/openssl/latest/libcrypto.so.1.1 \
-                          --libraries $HOME/openssl/latest/libssl.so.1.1
-          kill %2
-          kill %1
+          cargo-dinghy -p auto-android-aarch64-api${ANDROID_API} test
