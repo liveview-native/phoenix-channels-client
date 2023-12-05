@@ -1,5 +1,5 @@
 # based on https://gist.github.com/learnopengles/60c945b92fbe60a0fecaa0143c35c4a for testing in simulator
-name: aarch64-apple-ios
+name: aarch64-apple-ios-sim
 
 on: pull_request
 
@@ -73,20 +73,20 @@ jobs:
         run: mix phx.server &
 
       - name: Set linker
-        run: echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$PWD/tests/support/linker_shim.sh" >> $GITHUB_ENV
+        run: echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$PWD/tests/support/ios/linker_shim.sh" >> $GITHUB_ENV
       - name: Build integration tests
         run: cargo test --no-run --target=aarch64-apple-ios-sim
       - name: Copy integration tests to app bundle
         run: |
-          cp `find target/aarch64-apple-ios-sim/debug/deps/ -perm +111 -type f -name "integration_test-*"` tests/support/app/integration_test
-          ls tests/support/app/integration_test
+          cp `find target/aarch64-apple-ios-sim/debug/deps/ -perm +111 -type f -name "integration_test-*"` tests/support/ios/app/integration_test
+          ls tests/support/ios/app/integration_test
       - name: Start Simulator
         uses: futureware-tech/simulator-action@v3
         with:
           os: 'iOS'
       - name: Install integration tests into Simulator
         run: |
-          xcrun simctl install booted tests/support/app
+          xcrun simctl install booted tests/support/ios/app
 
       - name: Test phoenix_channel_clients
         run: |
