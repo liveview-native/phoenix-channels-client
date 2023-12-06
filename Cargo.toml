@@ -29,7 +29,7 @@ path = "uniffi-bindgen.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = []
+default = ["native-tls"]
 nightly = []
 native-tls = ["tokio-tungstenite/native-tls"]
 
@@ -58,3 +58,9 @@ env_logger = "0.10"
 
 [build-dependencies]
 uniffi = { version = "0.24.3", features = ["build"], git = "https://github.com/mozilla/uniffi-rs.git", rev = "856f40207e9a736f79241246c42bdb90d5c8e894" }
+
+[patch.crates-io]
+tokio = { git = "https://github.com/tokio-rs/tokio" }
+native-tls = { git = "https://github.com/simlay/rust-native-tls.git",        branch = "add-tvos-and-watchos-target-flags"}
+security-framework     = { git = "https://github.com/simlay/rust-security-framework/", branch = "add-tvos-and-watchos-support" }
+security-framework-sys = { git = "https://github.com/simlay/rust-security-framework/", branch = "add-tvos-and-watchos-support" }
