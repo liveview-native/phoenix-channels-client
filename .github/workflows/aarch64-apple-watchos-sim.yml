@@ -4,7 +4,7 @@ name: aarch64-apple-watchos-sim
 on: pull_request
 
 env:
-  TOOLCHAIN: nightly
+  TOOLCHAIN: nightly-2023-12-01
   CARGO_TERM_COLOR: always
   DYLD_ROOT_PATH: /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/
 
@@ -19,7 +19,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly
+          toolchain: ${{ env.TOOLCHAIN }}
           # aarch64-apple-watchos-sim is Tier 3 and so needs to be built from source 😭
           components: rust-src
           default: true

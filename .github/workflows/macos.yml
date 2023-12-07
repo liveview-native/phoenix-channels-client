@@ -4,7 +4,7 @@ on: pull_request
 
 env:
   CARGO_TERM_COLOR: always
-  TOOLCHAIN: nightly
+  TOOLCHAIN: nightly-2023-12-01
 
 jobs:
   integration_tests:
@@ -16,7 +16,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: ${{ env.TOOLCHAIN }}
           default: true
       - name: Set up Elixir
         run: brew install elixir

@@ -4,7 +4,7 @@ on: pull_request
 
 env:
   RUSTDOCFLAGS: "-D warnings"
-  TOOLCHAIN: nightly
+  TOOLCHAIN: nightly-2023-12-01
   CARGO_TERM_COLOR: always
 
 jobs:
