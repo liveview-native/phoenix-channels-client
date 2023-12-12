@@ -1,8 +1,5 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(feature = "nightly", feature(slice_take))]
-#![feature(async_closure)]
-#![feature(io_error_more)]
-#![feature(io_error_uncategorized)]
 // doc warnings that aren't on by default
 #![warn(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
@@ -18,10 +15,11 @@ pub use ffi::channel::{
 pub use ffi::io::error::IoError;
 pub use ffi::json::{JSONDeserializationError, JSON};
 pub use ffi::message::{Event, Payload, PhoenixEvent};
-pub use ffi::socket::{ConnectError, Socket, SocketStatus};
+pub use ffi::socket::{ConnectError, Socket, SocketStatus, SocketStatuses, SocketError};
 pub use ffi::topic::Topic;
 pub use ffi::web_socket::error::WebSocketError;
 pub use ffi::web_socket::protocol::WebSocketMessage;
-pub use ffi::Error;
+pub use ffi::PhoenixError;
 
-uniffi::include_scaffolding!("phoenix_channels_client");
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!("phoenix_channels_client");

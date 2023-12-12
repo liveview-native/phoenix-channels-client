@@ -22,8 +22,12 @@ use url::Url;
 use crate::ffi::observable_status::StatusesError;
 
 /// All errors that can be produced by this library.
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-pub enum Error {
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
+pub enum PhoenixError {
     /// Timeout elapsed
     #[error("timeout elapsed")]
     Elapsed,
@@ -58,12 +62,12 @@ pub enum Error {
         statuses: StatusesError,
     },
 }
-impl From<Elapsed> for Error {
+impl From<Elapsed> for PhoenixError {
     fn from(_: Elapsed) -> Self {
         Self::Elapsed
     }
 }
-impl From<url::ParseError> for Error {
+impl From<url::ParseError> for PhoenixError {
     fn from(url_parse_error: url::ParseError) -> Self {
         Self::URLParse {
             url_parse: url_parse_error.into(),
@@ -71,7 +75,11 @@ impl From<url::ParseError> for Error {
     }
 }
 
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum URLParseError {
     #[error("empty host")]
     EmptyHost,
@@ -114,9 +122,22 @@ impl From<url::ParseError> for URLParseError {
     }
 }
 
+fn instant_to_system_time(instant: Instant) -> SystemTime {
+    let instant_now = Instant::now();
+    let system_time_now = SystemTime::now();
+
+    if instant < instant_now {
+        let duration_since = instant_now.duration_since(instant);
+        system_time_now.sub(duration_since)
+    } else {
+        let duration_until = instant.duration_since(instant_now);
+        system_time_now.add(duration_until)
+    }
+}
+
 macro_rules! from_for_error {
     ($t:path, $v:tt, $f:tt) => {
-        impl From<$t> for Error {
+        impl From<$t> for PhoenixError {
             fn from(error: $t) -> Self {
                 Self::$v { $f: error.into() }
             }
@@ -134,22 +155,13 @@ from_for_error!(channel::CastError, Channel, channel);
 from_for_error!(channel::LeaveError, Channel, channel);
 from_for_error!(channel::ChannelShutdownError, Channel, channel);
 
+#[cfg(feature = "uniffi")]
 use crate::UniffiCustomTypeConverter;
 
-fn instant_to_system_time(instant: Instant) -> SystemTime {
-    let instant_now = Instant::now();
-    let system_time_now = SystemTime::now();
 
-    if instant < instant_now {
-        let duration_since = instant_now.duration_since(instant);
-        system_time_now.sub(duration_since)
-    } else {
-        let duration_until = instant.duration_since(instant_now);
-        system_time_now.add(duration_until)
-    }
-}
-
+#[cfg(feature = "uniffi")]
 uniffi::custom_type!(Url, String);
+#[cfg(feature = "uniffi")]
 impl UniffiCustomTypeConverter for Url {
     type Builtin = String;
 

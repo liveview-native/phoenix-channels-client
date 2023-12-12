@@ -1,6 +1,10 @@
 /// Wraps [tokio::sync::broadcast::error::RecvError] to add `uniffi` support and names specific to
 /// [Statuses](crate::rust::observable_status::Statuses).
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum StatusesError {
     #[error("No more statuses left")]
     NoMoreStatuses,

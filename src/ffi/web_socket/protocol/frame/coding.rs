@@ -1,25 +1,26 @@
 use std::fmt;
 use std::fmt::Display;
 
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode as TungsteniteCloseCode;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::Control as TungsteniteControl;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::Data as TungsteniteData;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::OpCode as TungsteniteOpCode;
+use tokio_tungstenite::tungstenite::protocol::frame::coding as tungstenite_coding;
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::OpCode], but with `uniffi` support
 /// WebSocket message opcode as in RFC 6455.
-#[derive(Debug, PartialEq, Eq, Clone, Copy, uniffi::Enum)]
-pub enum OpCode {
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
+pub enum TungsteniteOpCode {
     /// Data (text or binary).
-    Data { data: Data },
+    Data { data: TungsteniteData },
     /// Control message (close, ping, pong).
-    Control { control: Control },
+    Control { control: TungsteniteControl },
 }
-impl From<&TungsteniteOpCode> for OpCode {
-    fn from(rust_opcode: &TungsteniteOpCode) -> Self {
+impl From<&tungstenite_coding::OpCode> for TungsteniteOpCode {
+    fn from(rust_opcode: &tungstenite_coding::OpCode) -> Self {
         match rust_opcode {
-            TungsteniteOpCode::Data(data) => Self::Data { data: data.into() },
-            TungsteniteOpCode::Control(control) => Self::Control {
+            tungstenite_coding::OpCode::Data(data) => Self::Data { data: data.into() },
+            tungstenite_coding::OpCode::Control(control) => Self::Control {
                 control: control.into(),
             },
         }
@@ -28,8 +29,12 @@ impl From<&TungsteniteOpCode> for OpCode {
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::Data], but with `uniffi` support.
 /// Data opcodes as in RFC 6455
-#[derive(Debug, PartialEq, Eq, Clone, Copy, uniffi::Enum)]
-pub enum Data {
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
+pub enum TungsteniteData {
     /// 0x0 denotes a continuation frame
     Continue,
     /// 0x1 denotes a text frame
@@ -39,31 +44,35 @@ pub enum Data {
     /// 0x3-7 are reserved for further non-control frames
     Reserved { bits: u8 },
 }
-impl Display for Data {
+impl Display for TungsteniteData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Data::Continue => write!(f, "CONTINUE"),
-            Data::Text => write!(f, "TEXT"),
-            Data::Binary => write!(f, "BINARY"),
-            Data::Reserved { bits } => write!(f, "RESERVED_DATA_{}", bits),
+            TungsteniteData::Continue => write!(f, "CONTINUE"),
+            TungsteniteData::Text => write!(f, "TEXT"),
+            TungsteniteData::Binary => write!(f, "BINARY"),
+            TungsteniteData::Reserved { bits } => write!(f, "RESERVED_DATA_{}", bits),
         }
     }
 }
-impl From<&TungsteniteData> for Data {
-    fn from(rust_data: &TungsteniteData) -> Self {
+impl From<&tungstenite_coding::Data> for TungsteniteData {
+    fn from(rust_data: &tungstenite_coding::Data) -> Self {
         match rust_data {
-            TungsteniteData::Continue => Self::Continue,
-            TungsteniteData::Text => Self::Text,
-            TungsteniteData::Binary => Self::Binary,
-            TungsteniteData::Reserved(bits) => Self::Reserved { bits: *bits },
+            tungstenite_coding::Data::Continue => Self::Continue,
+            tungstenite_coding::Data::Text => Self::Text,
+            tungstenite_coding::Data::Binary => Self::Binary,
+            tungstenite_coding::Data::Reserved(bits) => Self::Reserved { bits: *bits },
         }
     }
 }
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::Control], but with `uniffi` support.
 /// Control opcodes as in RFC 6455
-#[derive(Debug, PartialEq, Eq, Clone, Copy, uniffi::Enum)]
-pub enum Control {
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
+pub enum TungsteniteControl {
     /// 0x8 denotes a connection close
     Close,
     /// 0x9 denotes a ping
@@ -73,21 +82,25 @@ pub enum Control {
     /// 0xb-f are reserved for further control frames
     Reserved { bit: u8 },
 }
-impl From<&TungsteniteControl> for Control {
-    fn from(rust_control: &TungsteniteControl) -> Self {
+impl From<&tungstenite_coding::Control> for TungsteniteControl {
+    fn from(rust_control: &tungstenite_coding::Control) -> Self {
         match rust_control {
-            TungsteniteControl::Close => Self::Close,
-            TungsteniteControl::Ping => Self::Ping,
-            TungsteniteControl::Pong => Self::Pong,
-            TungsteniteControl::Reserved(bit) => Self::Reserved { bit: *bit },
+            tungstenite_coding::Control::Close => Self::Close,
+            tungstenite_coding::Control::Ping => Self::Ping,
+            tungstenite_coding::Control::Pong => Self::Pong,
+            tungstenite_coding::Control::Reserved(bit) => Self::Reserved { bit: *bit },
         }
     }
 }
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode], but with `uniffi::support`
 /// Status code used to indicate why an endpoint is closing the WebSocket connection.
-#[derive(Debug, Eq, PartialEq, Clone, Copy, uniffi::Enum)]
-pub enum CloseCode {
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
+pub enum TungsteniteCloseCode {
     /// Indicates a normal closure, meaning that the purpose for
     /// which the connection was established has been fulfilled.
     Normal,
@@ -146,38 +159,33 @@ pub enum CloseCode {
     /// to a different IP (when multiple targets exist), or reconnect to the same IP
     /// when a user has performed an action.
     Again,
-    #[doc(hidden)]
     Tls,
-    #[doc(hidden)]
     Reserved { code: u16 },
-    #[doc(hidden)]
     Iana { code: u16 },
-    #[doc(hidden)]
     Library { code: u16 },
-    #[doc(hidden)]
     Bad { code: u16 },
 }
-impl From<&TungsteniteCloseCode> for CloseCode {
-    fn from(rust_close_code: &TungsteniteCloseCode) -> Self {
+impl From<&tungstenite_coding::CloseCode> for TungsteniteCloseCode {
+    fn from(rust_close_code: &tungstenite_coding::CloseCode) -> Self {
         match rust_close_code {
-            TungsteniteCloseCode::Normal => Self::Normal,
-            TungsteniteCloseCode::Away => Self::Away,
-            TungsteniteCloseCode::Protocol => Self::Protocol,
-            TungsteniteCloseCode::Unsupported => Self::Unsupported,
-            TungsteniteCloseCode::Status => Self::Status,
-            TungsteniteCloseCode::Abnormal => Self::Abnormal,
-            TungsteniteCloseCode::Invalid => Self::Invalid,
-            TungsteniteCloseCode::Policy => Self::Policy,
-            TungsteniteCloseCode::Size => Self::Size,
-            TungsteniteCloseCode::Extension => Self::Extension,
-            TungsteniteCloseCode::Error => Self::Error,
-            TungsteniteCloseCode::Restart => Self::Restart,
-            TungsteniteCloseCode::Again => Self::Again,
-            TungsteniteCloseCode::Tls => Self::Tls,
-            TungsteniteCloseCode::Reserved(code) => Self::Reserved { code: *code },
-            TungsteniteCloseCode::Iana(code) => Self::Iana { code: *code },
-            TungsteniteCloseCode::Library(code) => Self::Library { code: *code },
-            TungsteniteCloseCode::Bad(code) => Self::Bad { code: *code },
+            tungstenite_coding::CloseCode::Normal => Self::Normal,
+            tungstenite_coding::CloseCode::Away => Self::Away,
+            tungstenite_coding::CloseCode::Protocol => Self::Protocol,
+            tungstenite_coding::CloseCode::Unsupported => Self::Unsupported,
+            tungstenite_coding::CloseCode::Status => Self::Status,
+            tungstenite_coding::CloseCode::Abnormal => Self::Abnormal,
+            tungstenite_coding::CloseCode::Invalid => Self::Invalid,
+            tungstenite_coding::CloseCode::Policy => Self::Policy,
+            tungstenite_coding::CloseCode::Size => Self::Size,
+            tungstenite_coding::CloseCode::Extension => Self::Extension,
+            tungstenite_coding::CloseCode::Error => Self::Error,
+            tungstenite_coding::CloseCode::Restart => Self::Restart,
+            tungstenite_coding::CloseCode::Again => Self::Again,
+            tungstenite_coding::CloseCode::Tls => Self::Tls,
+            tungstenite_coding::CloseCode::Reserved(code) => Self::Reserved { code: *code },
+            tungstenite_coding::CloseCode::Iana(code) => Self::Iana { code: *code },
+            tungstenite_coding::CloseCode::Library(code) => Self::Library { code: *code },
+            tungstenite_coding::CloseCode::Bad(code) => Self::Bad { code: *code },
         }
     }
 }

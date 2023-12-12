@@ -10,7 +10,11 @@ use crate::rust;
 /// We discriminate between special Phoenix events and user-defined events, as they have slightly
 /// different semantics. Generally speaking, Phoenix events are not exposed to users, and are not
 /// permitted to be sent by them either.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
 pub enum Event {
     /// Represents one of the built-in Phoenix channel events, e.g. join
     Phoenix {
@@ -23,11 +27,9 @@ pub enum Event {
         user: String,
     },
 }
-#[uniffi::export]
 impl Event {
     /// Creates an [Event] from a string and ensures that special Phoenix control events are turned
     /// into [Event::Phoenix] while others are [Event::User].
-    #[uniffi::constructor]
     pub fn from_string(name: String) -> Self {
         let rust_event: rust::message::Event = name.into();
 
@@ -52,7 +54,11 @@ impl From<rust::message::Event> for Event {
 }
 
 /// Represents special events related to management of Phoenix channels.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
 pub enum PhoenixEvent {
     /// Used when sending a message to join a channel
     Join = 0,
@@ -96,7 +102,11 @@ impl FromStr for PhoenixEvent {
 }
 
 /// Contains the response payload sent to/received from Phoenix
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
 pub enum Payload {
     /// A JSON payload
     JSON {
@@ -109,17 +119,14 @@ pub enum Payload {
         bytes: Vec<u8>,
     },
 }
-#[uniffi::export]
 impl Payload {
     /// Deserializes JSON serialized to a string to [Payload::JSON] or errors with a
     /// [JSONDeserializationError] if the string is invalid JSON.
-    #[uniffi::constructor]
     pub fn json_from_serialized(serialized_json: String) -> Result<Self, JSONDeserializationError> {
         JSON::deserialize(serialized_json).map(|json| Self::JSON { json })
     }
 
     /// Stores bytes in [Payload::Binary].
-    #[uniffi::constructor]
     pub fn binary_from_bytes(bytes: Vec<u8>) -> Self {
         Self::Binary { bytes }
     }
