@@ -8,7 +8,6 @@ env:
 
 jobs:
   integration_tests:
-    # macos-*-xlarge is needed to get M1 chips - https://github.blog/2023-10-02-introducing-the-new-apple-silicon-powered-m1-macos-larger-runner-for-github-actions/
     runs-on: self-hosted
 
     steps:
@@ -16,7 +15,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: ${{ env.TOOLCHAIN }}
           default: true
       - name: Set up Elixir
         run: brew install elixir
@@ -71,3 +70,32 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
+
+  uniffi-check:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          default: true
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build static library
+        run: cargo build --lib --release # For some unclear reason, the release build has better errors.
+      - name: Generate swift bindings
+        run: |
+          cargo run --bin uniffi-bindgen -- generate --library ./target/release/libphoenix_channels_client.dylib --out-dir ./binding-swift/ --language swift
+      - name: Generate kotlin bindings
+        run: |
+          cargo run --bin uniffi-bindgen -- generate --library ./target/release/libphoenix_channels_client.dylib --out-dir ./binding-kotlin/ --language kotlin
+      - name: check without uniffi feature
+        run: cargo check --no-default-features --all-targets

@@ -1,10 +1,14 @@
-use coding::{CloseCode, OpCode};
+use coding::{TungsteniteCloseCode, TungsteniteOpCode};
 
 pub(crate) mod coding;
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::Frame], but with `uniffi` support.
 /// A struct representing a WebSocket frame.
-#[derive(Debug, Clone, Eq, PartialEq, uniffi::Record)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Record)
+)]
 pub struct Frame {
     header: FrameHeader,
     payload: Vec<u8>,
@@ -21,7 +25,11 @@ impl From<&tokio_tungstenite::tungstenite::protocol::frame::Frame> for Frame {
 /// [tokio_tungstenite::tungstenite::protocol::frame::FrameHeader], but with `uniffi` support.
 /// A struct representing a WebSocket frame header.
 #[allow(missing_copy_implementations)]
-#[derive(Debug, Clone, Eq, PartialEq, uniffi::Record)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Record)
+)]
 pub struct FrameHeader {
     /// Indicates that the frame is the last one of a possibly fragmented message.
     pub is_final: bool,
@@ -32,7 +40,7 @@ pub struct FrameHeader {
     /// Reserved for protocol extensions.
     pub rsv3: bool,
     /// WebSocket protocol opcode.
-    pub opcode: OpCode,
+    pub opcode: TungsteniteOpCode,
     /// A frame mask, if any.
     pub mask: Option<Vec<u8>>,
 }
@@ -62,10 +70,14 @@ impl From<&tokio_tungstenite::tungstenite::protocol::frame::FrameHeader> for Fra
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::CloseFrame], but with `uniffi::support`
 /// A struct representing the close command.
-#[derive(Debug, Clone, Eq, PartialEq, uniffi::Record)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Record)
+)]
 pub struct CloseFrame {
     /// The reason as a code.
-    pub code: CloseCode,
+    pub code: TungsteniteCloseCode,
     /// The reason as text string.
     pub reason: String,
 }

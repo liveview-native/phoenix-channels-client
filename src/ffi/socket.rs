@@ -10,10 +10,10 @@
 //! # use serde_json::json;
 //! # use url::Url;
 //! #
-//! # use phoenix_channels_client::{Error, Socket};
+//! # use phoenix_channels_client::{PhoenixError, Socket};
 //! #
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), Error> {
+//! # async fn main() -> Result<(), PhoenixError> {
 //! // URL with params for authentication
 //! let url = Url::parse_with_params(
 //!     "ws://127.0.0.1:9002/socket/websocket",
@@ -36,10 +36,10 @@
 //!#  use tokio_tungstenite::tungstenite;
 //! # use url::Url;
 //! #
-//! # use phoenix_channels_client::{ConnectError, Error, Socket, WebSocketError};
+//! # use phoenix_channels_client::{ConnectError, PhoenixError, Socket, WebSocketError};
 //! #
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), Error> {
+//! # async fn main() -> Result<(), PhoenixError> {
 //! // URL with params for authentication
 //! let url = Url::parse_with_params(
 //!     "ws://127.0.0.1:9002/socket/websocket",
@@ -78,11 +78,11 @@
 //! # use uuid::Uuid;
 //! #
 //! # use phoenix_channels_client::{
-//! #   CallError, Error, Event, JSON, Payload, Socket, SocketStatus, Topic, WebSocketError
+//! #   CallError, PhoenixError, Event, JSON, Payload, Socket, SocketStatus, Topic, WebSocketError
 //! # };
 //! #
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), Error> {
+//! # async fn main() -> Result<(), PhoenixError> {
 //! let id = id();
 //! let secret = generate_secret(&id).await;
 //! let secret_url = Url::parse_with_params(
@@ -205,36 +205,45 @@ use crate::rust::socket::listener::{
 };
 
 /// Errors when calling [Socket] functions.
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum SocketError {
     /// Error when calling [Socket::spawn].
     #[error(transparent)]
     Spawn {
         #[from]
+        /// Represents errors that occur from [`Socket::spawn`]
         spawn_error: SpawnError,
     },
     /// Error when calling [Socket::connect].
     #[error(transparent)]
     Connect {
         #[from]
+        /// Errors from [Socket::connect].
         connect_error: ConnectError,
     },
     /// Error when calling [Socket::channel].
     #[error(transparent)]
     Channel {
         #[from]
+        /// Errors when calling [Socket::channel]
         channel_error: SocketChannelError,
     },
     /// Error when calling [Socket::disconnect].
     #[error(transparent)]
     Disconnect {
         #[from]
+        /// Error when calling [Socket::disconnect]
         disconnect_error: DisconnectError,
     },
     /// Error when calling [Socket::shutdown].
     #[error(transparent)]
     Shutdown {
         #[from]
+        /// Error from [Socket::shutdown] or from the server itself that caused the [Socket] to shutdown.
         shutdown_error: SocketShutdownError,
     },
 }
@@ -251,7 +260,10 @@ const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 ///
 /// Once connected, the more useful [`Channel`] instance can be obtained via [`Self::channel`]. Most functionality
 /// related to channels is exposed there.
-#[derive(uniffi::Object)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Object)
+)]
 pub struct Socket {
     url: Arc<Url>,
     status: ObservableStatus,
@@ -264,11 +276,8 @@ pub struct Socket {
     /// * None - spawned task has been joined once.
     pub(crate) join_handle: AtomicTake<JoinHandle<Result<(), rust::socket::ShutdownError>>>,
 }
-#[uniffi::export]
 impl Socket {
-    /// Spawns a new [Socket] that must be [Socket::connect]ed.
-    #[uniffi::constructor]
-    pub fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
+    fn spawn_actual(mut url: Url) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
             _ => return Err(SpawnError::UnsupportedScheme { url }),
@@ -304,6 +313,22 @@ impl Socket {
             channel_send_command_tx,
             join_handle: AtomicTake::new(join_handle),
         }))
+    }
+    #[cfg(not(feature = "uniffi"))]
+    pub fn spawn(url: Url) -> Result<Arc<Self>, SpawnError> {
+        Self::spawn_actual(url)
+    }
+}
+#[cfg_attr(
+    feature = "uniffi",
+    uniffi::export
+)]
+impl Socket {
+    /// Spawns a new [Socket] that must be [Socket::connect]ed.
+    #[cfg(feature = "uniffi")]
+    #[uniffi::constructor]
+    pub fn spawn(url: Url) -> Result<Arc<Self>, SpawnError> {
+        Self::spawn_actual(url)
     }
 
     /// The `url` passed to [Socket::spawn]
@@ -414,7 +439,11 @@ impl Socket {
 }
 
 /// The status of the [Socket].
-#[derive(Copy, Clone, Debug, Eq, PartialEq, uniffi::Enum)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
 pub enum SocketStatus {
     /// [Socket::connect] has never been called.
     NeverConnected,
@@ -448,13 +477,17 @@ impl From<rust::socket::Status> for SocketStatus {
     }
 }
 
-// Can't be generic because `uniffi` does not support generics
-#[derive(uniffi::Object)]
+/// A wrapper anound `observable_status::Statuses` because `uniffi` does not support generics
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Object)
+)]
 pub struct SocketStatuses(
     observable_status::Statuses<rust::socket::Status, Arc<tungstenite::Error>>,
 );
-#[uniffi::export]
+
 impl SocketStatuses {
+    /// Retrieve the current status.
     pub async fn status(
         &self,
     ) -> Result<Result<SocketStatus, web_socket::error::WebSocketError>, StatusesError> {
@@ -476,8 +509,12 @@ impl From<observable_status::Statuses<rust::socket::Status, Arc<tungstenite::Err
 }
 
 /// Represents errors that occur from [`Socket::spawn`]
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-#[uniffi(flat_error)]
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error),
+    uniffi(flat_error)
+)]
 pub enum SpawnError {
     /// Occurs when the configured url's scheme is not ws or wss.
     #[error("Unsupported scheme in url ({url}). Supported schemes are ws and wss.")]
@@ -485,8 +522,12 @@ pub enum SpawnError {
 }
 
 /// Errors from [Socket::connect].
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-#[uniffi(flat_error)]
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error),
+    uniffi(flat_error)
+)]
 pub enum ConnectError {
     /// Server did not respond before timeout passed to [Socket::connect] expired.
     #[error("timeout connecting to server")]
@@ -548,7 +589,11 @@ impl From<rust::socket::ShutdownError> for ConnectError {
 }
 
 /// Errors when calling [Socket::channel]
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum SocketChannelError {
     #[error("socket shutdown: {shutdown_error}")]
     Shutdown { shutdown_error: SocketShutdownError },
@@ -562,7 +607,11 @@ impl From<rust::socket::ShutdownError> for SocketChannelError {
 }
 
 /// Error when calling [Socket::disconnect]
-#[derive(Debug, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum DisconnectError {
     #[error("socket shutdown: {shutdown_error}")]
     Shutdown { shutdown_error: SocketShutdownError },
@@ -576,7 +625,11 @@ impl From<rust::socket::ShutdownError> for DisconnectError {
 }
 
 /// Error from [Socket::shutdown] or from the server itself that caused the [Socket] to shutdown.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum SocketShutdownError {
     /// The async task was already joined by another call, so the [Result] or panic from the async
     /// task can't be reported here.

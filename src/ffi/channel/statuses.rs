@@ -8,11 +8,20 @@ use crate::ChannelStatus;
 
 /// Waits for [ChannelStatus] changes from the [Channel](crate::Channel).
 // Can't be generic because `uniffi` does not support generics
-#[derive(uniffi::Object)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Object)
+)]
 pub struct ChannelStatuses(
     observable_status::Statuses<rust::channel::Status, Arc<rust::message::Payload>>,
 );
-#[uniffi::export]
+/*
+ *TODO: Nested results do not work when running uniffi-bindgen on build library.
+#[cfg_attr(
+    feature = "uniffi",
+    uniffi::export,
+)]
+*/
 impl ChannelStatuses {
     /// Wait for next [ChannelStatus] when the [Channel::status](super::Channel::status) changes.
     pub async fn status(
@@ -35,7 +44,11 @@ impl From<observable_status::Statuses<rust::channel::Status, Arc<rust::message::
 }
 
 /// Errors when calling [Channel::join](super::Channel::join).
-#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum ChannelStatusJoinError {
     /// The [Channel::payload](super::Channel::payload) was rejected when attempting to
     /// [Channel::join](super::Channel::join) or automatically rejoin

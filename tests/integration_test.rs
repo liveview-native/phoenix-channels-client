@@ -17,7 +17,7 @@ use uuid::Uuid;
 // the foreign bindings
 use phoenix_channels_client::{
     CallError, ChannelJoinError, ChannelStatus, ChannelStatusJoinError, ChannelStatuses,
-    ConnectError, Error, Event, EventPayload, IoError, Payload, Socket, SocketStatus, Topic,
+    ConnectError, PhoenixError, Event, EventPayload, IoError, Payload, Socket, SocketStatus, Topic,
     WebSocketError, JSON,
 };
 
@@ -36,7 +36,7 @@ macro_rules! assert_matches {
 }
 
 #[tokio::test]
-async fn socket_status() -> Result<(), Error> {
+async fn socket_status() -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -66,7 +66,7 @@ async fn socket_status() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn socket_statuses() -> Result<(), Error> {
+async fn socket_statuses() -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -147,7 +147,7 @@ async fn socket_statuses() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn channel_status() -> Result<(), Error> {
+async fn channel_status() -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -185,7 +185,7 @@ async fn channel_status() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn channel_statuses() -> Result<(), Error> {
+async fn channel_statuses() -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -303,7 +303,7 @@ async fn channel_statuses() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn channel_key_rotation_test() -> Result<(), Error> {
+async fn channel_key_rotation_test() -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -364,7 +364,7 @@ async fn channel_key_rotation_test() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn socket_key_rotation_test() -> Result<(), Error> {
+async fn socket_key_rotation_test() -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -432,16 +432,16 @@ async fn socket_key_rotation_test() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn phoenix_channels_socket_disconnect_reconnect_test() -> Result<(), Error> {
+async fn phoenix_channels_socket_disconnect_reconnect_test() -> Result<(), PhoenixError> {
     phoenix_channels_reconnect_test(Event::from_string("socket_disconnect".to_string())).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_transport_error_reconnect_test() -> Result<(), Error> {
+async fn phoenix_channels_transport_error_reconnect_test() -> Result<(), PhoenixError> {
     phoenix_channels_reconnect_test(Event::from_string("transport_error".to_string())).await
 }
 
-async fn phoenix_channels_reconnect_test(event: Event) -> Result<(), Error> {
+async fn phoenix_channels_reconnect_test(event: Event) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -504,16 +504,16 @@ async fn phoenix_channels_reconnect_test(event: Event) -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_json_payload_test() -> Result<(), Error> {
+async fn phoenix_channels_join_json_payload_test() -> Result<(), PhoenixError> {
     phoenix_channels_join_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_binary_payload_test() -> Result<(), Error> {
+async fn phoenix_channels_join_binary_payload_test() -> Result<(), PhoenixError> {
     phoenix_channels_join_payload_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
+async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -542,16 +542,16 @@ async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) ->
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_json_error_test() -> Result<(), Error> {
+async fn phoenix_channels_join_json_error_test() -> Result<(), PhoenixError> {
     phoenix_channels_join_error_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_join_binary_error_test() -> Result<(), Error> {
+async fn phoenix_channels_join_binary_error_test() -> Result<(), PhoenixError> {
     phoenix_channels_join_error_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
+async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -579,16 +579,16 @@ async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) -> R
 }
 
 #[tokio::test]
-async fn phoenix_channels_json_broadcast_test() -> Result<(), Error> {
+async fn phoenix_channels_json_broadcast_test() -> Result<(), PhoenixError> {
     phoenix_channels_broadcast_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_binary_broadcast_test() -> Result<(), Error> {
+async fn phoenix_channels_binary_broadcast_test() -> Result<(), PhoenixError> {
     phoenix_channels_broadcast_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
+async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -645,21 +645,21 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Re
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_json_payload_reply_ok_without_payload_test() -> Result<(), Error>
+async fn phoenix_channels_call_with_json_payload_reply_ok_without_payload_test() -> Result<(), PhoenixError>
 {
     phoenix_channels_call_reply_ok_without_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
 async fn phoenix_channels_call_with_binary_payload_reply_ok_without_payload_test(
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     phoenix_channels_call_reply_ok_without_payload_test("binary", binary_payload()).await
 }
 
 async fn phoenix_channels_call_reply_ok_without_payload_test(
     subtopic: &str,
     payload: Payload,
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -691,20 +691,20 @@ async fn phoenix_channels_call_reply_ok_without_payload_test(
 
 #[tokio::test]
 async fn phoenix_channels_call_with_json_payload_reply_error_without_payload_test(
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     phoenix_channels_call_reply_error_without_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
 async fn phoenix_channels_call_with_binary_payload_reply_error_without_payload_test(
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     phoenix_channels_call_reply_error_without_payload_test("binary", binary_payload()).await
 }
 
 async fn phoenix_channels_call_reply_error_without_payload_test(
     subtopic: &str,
     payload: Payload,
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -739,19 +739,19 @@ async fn phoenix_channels_call_reply_error_without_payload_test(
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_reply_ok_with_json_payload_test() -> Result<(), Error> {
+async fn phoenix_channels_call_reply_ok_with_json_payload_test() -> Result<(), PhoenixError> {
     phoenix_channels_call_reply_ok_with_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_reply_ok_with_binary_payload_test() -> Result<(), Error> {
+async fn phoenix_channels_call_reply_ok_with_binary_payload_test() -> Result<(), PhoenixError> {
     phoenix_channels_call_reply_ok_with_payload_test("binary", binary_payload()).await
 }
 
 async fn phoenix_channels_call_reply_ok_with_payload_test(
     subtopic: &str,
     payload: Payload,
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -787,13 +787,13 @@ async fn phoenix_channels_call_reply_ok_with_payload_test(
 
 #[tokio::test]
 async fn phoenix_channels_call_with_json_payload_reply_error_with_json_payload_test(
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     phoenix_channels_call_with_payload_reply_error_with_payload_test("json", json_payload()).await
 }
 
 #[tokio::test]
 async fn phoenix_channels_call_with_binary_payload_reply_error_with_binary_payload_test(
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     phoenix_channels_call_with_payload_reply_error_with_payload_test("binary", binary_payload())
         .await
 }
@@ -801,7 +801,7 @@ async fn phoenix_channels_call_with_binary_payload_reply_error_with_binary_paylo
 async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
     subtopic: &str,
     payload: Payload,
-) -> Result<(), Error> {
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -836,16 +836,16 @@ async fn phoenix_channels_call_with_payload_reply_error_with_payload_test(
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_json_payload_raise_test() -> Result<(), Error> {
+async fn phoenix_channels_call_with_json_payload_raise_test() -> Result<(), PhoenixError> {
     phoenix_channels_call_raise_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_binary_payload_raise_test() -> Result<(), Error> {
+async fn phoenix_channels_call_with_binary_payload_raise_test() -> Result<(), PhoenixError> {
     phoenix_channels_call_raise_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
+async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -876,16 +876,16 @@ async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) -> R
 }
 
 #[tokio::test]
-async fn phoenix_channels_cast_error_json_test() -> Result<(), Error> {
+async fn phoenix_channels_cast_error_json_test() -> Result<(), PhoenixError> {
     phoenix_channels_cast_error_test("json", json_payload()).await
 }
 
 #[tokio::test]
-async fn phoenix_channels_cast_error_binary_test() -> Result<(), Error> {
+async fn phoenix_channels_cast_error_binary_test() -> Result<(), PhoenixError> {
     phoenix_channels_cast_error_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) -> Result<(), Error> {
+async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -1026,7 +1026,7 @@ async fn assert_joined(channel_statuses: &ChannelStatuses) {
     }
 }
 
-async fn connected_socket(url: Url) -> Result<Arc<Socket>, Error> {
+async fn connected_socket(url: Url) -> Result<Arc<Socket>, PhoenixError> {
     let socket = Socket::spawn(url)?;
 
     if let Err(connect_error) = socket.connect(CONNECT_TIMEOUT).await {
@@ -1056,7 +1056,7 @@ fn shared_secret_url(id: String) -> Url {
     .unwrap()
 }
 
-async fn generate_secret(socket: &Arc<Socket>) -> Result<String, Error> {
+async fn generate_secret(socket: &Arc<Socket>) -> Result<String, PhoenixError> {
     let channel = socket
         .channel(
             Topic::from_string("channel:generate_secret".to_string()),

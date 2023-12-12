@@ -1,7 +1,11 @@
 use std::io::ErrorKind;
 
 /// [std::io::Error] and [std::io::ErrorKind], but with `uniffi` support.
-#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Error)
+)]
 pub enum IoError {
     /// An entity was not found, often a file.
     #[error("entity not found")]
@@ -216,7 +220,6 @@ pub enum IoError {
     /// [`ErrorKind`] variant in the future. It is not recommended to match
     /// an error against `Uncategorized`; use a wildcard match (`_`) instead.
 
-    #[doc(hidden)]
     #[error("uncategorized error")]
     Uncategorized,
 }
@@ -233,37 +236,17 @@ impl From<ErrorKind> for IoError {
             ErrorKind::PermissionDenied => Self::PermissionDenied,
             ErrorKind::ConnectionRefused => Self::ConnectionRefused,
             ErrorKind::ConnectionReset => Self::ConnectionReset,
-            ErrorKind::HostUnreachable => Self::HostUnreachable,
-            ErrorKind::NetworkUnreachable => Self::NetworkUnreachable,
             ErrorKind::ConnectionAborted => Self::ConnectionAborted,
             ErrorKind::NotConnected => Self::NotConnected,
             ErrorKind::AddrInUse => Self::AddrInUse,
             ErrorKind::AddrNotAvailable => Self::AddrNotAvailable,
-            ErrorKind::NetworkDown => Self::NetworkDown,
             ErrorKind::BrokenPipe => Self::BrokenPipe,
             ErrorKind::AlreadyExists => Self::AlreadyExists,
             ErrorKind::WouldBlock => Self::WouldBlock,
-            ErrorKind::NotADirectory => Self::NotADirectory,
-            ErrorKind::IsADirectory => Self::IsADirectory,
-            ErrorKind::DirectoryNotEmpty => Self::DirectoryNotEmpty,
-            ErrorKind::ReadOnlyFilesystem => Self::ReadOnlyFilesystem,
-            ErrorKind::FilesystemLoop => Self::FilesystemLoop,
-            ErrorKind::StaleNetworkFileHandle => Self::StaleNetworkFileHandle,
             ErrorKind::InvalidInput => Self::InvalidInput,
             ErrorKind::InvalidData => Self::InvalidData,
             ErrorKind::TimedOut => Self::TimedOut,
             ErrorKind::WriteZero => Self::WriteZero,
-            ErrorKind::StorageFull => Self::StorageFull,
-            ErrorKind::NotSeekable => Self::NotSeekable,
-            ErrorKind::FilesystemQuotaExceeded => Self::FilesystemQuotaExceeded,
-            ErrorKind::FileTooLarge => Self::FileTooLarge,
-            ErrorKind::ResourceBusy => Self::ResourceBusy,
-            ErrorKind::ExecutableFileBusy => Self::ExecutableFileBusy,
-            ErrorKind::Deadlock => Self::Deadlock,
-            ErrorKind::CrossesDevices => Self::CrossesDevices,
-            ErrorKind::TooManyLinks => Self::TooManyLinks,
-            ErrorKind::InvalidFilename => Self::InvalidFilename,
-            ErrorKind::ArgumentListTooLong => Self::ArgumentListTooLong,
             ErrorKind::Interrupted => Self::Interrupted,
             ErrorKind::Unsupported => Self::Unsupported,
             ErrorKind::UnexpectedEof => Self::UnexpectedEof,

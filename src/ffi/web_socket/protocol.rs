@@ -4,7 +4,11 @@ pub(crate) mod frame;
 
 /// [tokio_tungstenite::tungstenite::protocol::Message], but with `uniffi` support.
 /// An enum representing the various forms of a WebSocket message.
-#[derive(Debug, Eq, PartialEq, Clone, uniffi::Enum)]
+#[derive(Debug, Eq, PartialEq, Clone)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Enum)
+)]
 pub enum WebSocketMessage {
     /// A text WebSocket message
     Text {

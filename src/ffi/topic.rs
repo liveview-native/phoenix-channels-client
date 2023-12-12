@@ -4,9 +4,14 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 /// A [Channel](crate::Channel) topic.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, uniffi::Object)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "uniffi",
+    derive(uniffi::Object)
+)]
 pub struct Topic(String);
 
+#[cfg(feature = "uniffi")]
 #[uniffi::export]
 impl Topic {
     /// Create [Topic] from string.
@@ -15,6 +20,14 @@ impl Topic {
         Arc::new(Topic(topic))
     }
 }
+
+#[cfg(not(feature = "uniffi"))]
+impl Topic {
+    pub fn from_string(topic: String) -> Arc<Self> {
+        Arc::new(Topic(topic))
+    }
+}
+
 
 impl Debug for Topic {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
