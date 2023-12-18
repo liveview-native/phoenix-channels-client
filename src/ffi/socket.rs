@@ -206,10 +206,7 @@ use crate::rust::socket::listener::{
 
 /// Errors when calling [Socket] functions.
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum SocketError {
     /// Error when calling [Socket::spawn].
     #[error(transparent)]
@@ -260,10 +257,7 @@ const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
 ///
 /// Once connected, the more useful [`Channel`] instance can be obtained via [`Self::channel`]. Most functionality
 /// related to channels is exposed there.
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Object)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Socket {
     url: Arc<Url>,
     status: ObservableStatus,
@@ -319,10 +313,7 @@ impl Socket {
         Self::spawn_actual(url)
     }
 }
-#[cfg_attr(
-    feature = "uniffi",
-    uniffi::export
-)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
     #[cfg(feature = "uniffi")]
@@ -440,10 +431,7 @@ impl Socket {
 
 /// The status of the [Socket].
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum SocketStatus {
     /// [Socket::connect] has never been called.
     NeverConnected,
@@ -478,10 +466,7 @@ impl From<rust::socket::Status> for SocketStatus {
 }
 
 /// A wrapper anound `observable_status::Statuses` because `uniffi` does not support generics
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Object)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct SocketStatuses(
     observable_status::Statuses<rust::socket::Status, Arc<tungstenite::Error>>,
 );
@@ -510,11 +495,7 @@ impl From<observable_status::Statuses<rust::socket::Status, Arc<tungstenite::Err
 
 /// Represents errors that occur from [`Socket::spawn`]
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error),
-    uniffi(flat_error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
 pub enum SpawnError {
     /// Occurs when the configured url's scheme is not ws or wss.
     #[error("Unsupported scheme in url ({url}). Supported schemes are ws and wss.")]
@@ -523,11 +504,7 @@ pub enum SpawnError {
 
 /// Errors from [Socket::connect].
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error),
-    uniffi(flat_error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
 pub enum ConnectError {
     /// Server did not respond before timeout passed to [Socket::connect] expired.
     #[error("timeout connecting to server")]
@@ -590,10 +567,7 @@ impl From<rust::socket::ShutdownError> for ConnectError {
 
 /// Errors when calling [Socket::channel]
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum SocketChannelError {
     #[error("socket shutdown: {shutdown_error}")]
     Shutdown { shutdown_error: SocketShutdownError },
@@ -608,10 +582,7 @@ impl From<rust::socket::ShutdownError> for SocketChannelError {
 
 /// Error when calling [Socket::disconnect]
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum DisconnectError {
     #[error("socket shutdown: {shutdown_error}")]
     Shutdown { shutdown_error: SocketShutdownError },
@@ -626,10 +597,7 @@ impl From<rust::socket::ShutdownError> for DisconnectError {
 
 /// Error from [Socket::shutdown] or from the server itself that caused the [Socket] to shutdown.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum SocketShutdownError {
     /// The async task was already joined by another call, so the [Result] or panic from the async
     /// task can't be reported here.

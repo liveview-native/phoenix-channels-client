@@ -11,6 +11,7 @@ defmodule TestServer.Application do
       {Phoenix.PubSub, [adapter: Phoenix.PubSub.PG2, name: TestServer.PubSub]},
       TestServer.Authorization,
       TestServer.Endpoint,
+      TestServer.Presence,
       TestServer.Secret
       # Starts a worker by calling: TestServer.Worker.start_link(arg)
       # {TestServer.Worker, arg}

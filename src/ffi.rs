@@ -8,6 +8,8 @@ pub mod io;
 pub mod json;
 pub mod message;
 pub mod observable_status;
+pub mod presence;
+pub mod presences;
 pub mod socket;
 pub mod topic;
 pub mod web_socket;
@@ -23,10 +25,7 @@ use crate::ffi::observable_status::StatusesError;
 
 /// All errors that can be produced by this library.
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum PhoenixError {
     /// Timeout elapsed
     #[error("timeout elapsed")]
@@ -61,6 +60,15 @@ pub enum PhoenixError {
         #[from]
         statuses: StatusesError,
     },
+    /// An error from calling [Presences](crate::Presences), [PresencesJoins](crate::PresencesJoins),
+    /// [PresencesLeaves](crate::PresencesLeaves), or [PresencesJoins](crate::PresencesJoins).
+    #[error(transparent)]
+    Presences {
+        /// An error from calling [Presences](crate::Presences), [PresencesJoins](crate::PresencesJoins),
+        /// [PresencesLeaves](crate::PresencesLeaves), or [PresencesJoins](crate::PresencesJoins).
+        #[from]
+        presences: presences::PresencesError,
+    },
 }
 impl From<Elapsed> for PhoenixError {
     fn from(_: Elapsed) -> Self {
@@ -76,10 +84,7 @@ impl From<url::ParseError> for PhoenixError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum URLParseError {
     #[error("empty host")]
     EmptyHost,
@@ -154,10 +159,13 @@ from_for_error!(channel::CallError, Channel, channel);
 from_for_error!(channel::CastError, Channel, channel);
 from_for_error!(channel::LeaveError, Channel, channel);
 from_for_error!(channel::ChannelShutdownError, Channel, channel);
+from_for_error!(presences::PresencesJoinsError, Presences, presences);
+from_for_error!(presences::PresencesLeavesError, Presences, presences);
+from_for_error!(presences::PresencesSyncsError, Presences, presences);
+from_for_error!(presences::PresencesShutdownError, Presences, presences);
 
 #[cfg(feature = "uniffi")]
 use crate::UniffiCustomTypeConverter;
-
 
 #[cfg(feature = "uniffi")]
 uniffi::custom_type!(Url, String);

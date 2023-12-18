@@ -2,10 +2,7 @@ use std::io::ErrorKind;
 
 /// [std::io::Error] and [std::io::ErrorKind], but with `uniffi` support.
 #[derive(Clone, Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum IoError {
     /// An entity was not found, often a file.
     #[error("entity not found")]

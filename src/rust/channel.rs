@@ -1,6 +1,7 @@
 pub(crate) mod listener;
 
 use atomic_take::AtomicTake;
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use log::error;
@@ -58,6 +59,11 @@ impl Channel {
             send_command_tx,
             join_handle: AtomicTake::new(join_handle),
         }
+    }
+}
+impl Display for Channel {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.topic)
     }
 }
 
