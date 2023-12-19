@@ -17,8 +17,8 @@ jobs:
         with:
           toolchain: ${{ env.TOOLCHAIN }}
           default: true
-      - name: Set up Elixir
-        run: brew install elixir
+      - name: Set up Elixir, kotlin and ktlint
+        run: brew install elixir kotlin ktlint
       - name: Cache Cargo
         uses: actions/cache@v3
         with:
@@ -66,10 +66,16 @@ jobs:
       - name: Run test server in background
         working-directory: ./tests/support/test_server
         run: mix phx.server &
+
+
+      - name: Get JNA jar
+        run: wget 'https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar'
+
       - name: Test phoenix_channel_clients
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+        run: cargo test
+        env:
+          # This is required for the kotlin uniffi tests
+          CLASSPATH: "/opt/homebrew/opt/kotlin/libexec/lib/kotlinx-coroutines-core-jvm.jar:./jna-5.14.0.jar"
 
   uniffi-check:
     runs-on: self-hosted
@@ -97,5 +103,3 @@ jobs:
       - name: Generate kotlin bindings
         run: |
           cargo run --bin uniffi-bindgen -- generate --library ./target/release/libphoenix_channels_client.dylib --out-dir ./binding-kotlin/ --language kotlin
-      - name: check without uniffi feature
-        run: cargo check --no-default-features --all-targets

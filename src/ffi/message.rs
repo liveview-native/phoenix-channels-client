@@ -10,11 +10,7 @@ use crate::rust;
 /// We discriminate between special Phoenix events and user-defined events, as they have slightly
 /// different semantics. Generally speaking, Phoenix events are not exposed to users, and are not
 /// permitted to be sent by them either.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, uniffi::Enum)]
 pub enum Event {
     /// Represents one of the built-in Phoenix channel events, e.g. join
     Phoenix {
@@ -54,11 +50,7 @@ impl From<rust::message::Event> for Event {
 }
 
 /// Represents special events related to management of Phoenix channels.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, uniffi::Enum)]
 pub enum PhoenixEvent {
     /// Used when sending a message to join a channel
     Join = 0,
@@ -102,14 +94,10 @@ impl FromStr for PhoenixEvent {
 }
 
 /// Contains the response payload sent to/received from Phoenix
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Payload {
     /// A JSON payload
-    JSON {
+    JSONPayload {
         /// The JSON payload
         json: JSON,
     },
@@ -120,10 +108,10 @@ pub enum Payload {
     },
 }
 impl Payload {
-    /// Deserializes JSON serialized to a string to [Payload::JSON] or errors with a
+    /// Deserializes JSON serialized to a string to [Payload::JSONPayload] or errors with a
     /// [JSONDeserializationError] if the string is invalid JSON.
     pub fn json_from_serialized(serialized_json: String) -> Result<Self, JSONDeserializationError> {
-        JSON::deserialize(serialized_json).map(|json| Self::JSON { json })
+        JSON::deserialize(serialized_json).map(|json| Self::JSONPayload { json })
     }
 
     /// Stores bytes in [Payload::Binary].
@@ -134,7 +122,7 @@ impl Payload {
 impl Display for Payload {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::JSON { json } => write!(f, "{}", json),
+            Self::JSONPayload { json } => write!(f, "{}", json),
             Self::Binary { bytes } => {
                 f.write_str("<<")?;
                 let mut first = true;
@@ -157,7 +145,7 @@ impl Display for Payload {
 impl From<rust::message::Payload> for Payload {
     fn from(rust_payload: rust::message::Payload) -> Self {
         match rust_payload {
-            rust::message::Payload::Value(value) => Payload::JSON {
+            rust::message::Payload::Value(value) => Payload::JSONPayload {
                 json: value.as_ref().into(),
             },
             rust::message::Payload::Binary(bytes) => Payload::Binary {
@@ -169,7 +157,7 @@ impl From<rust::message::Payload> for Payload {
 impl From<&rust::message::Payload> for Payload {
     fn from(rust_payload_ref: &rust::message::Payload) -> Self {
         match rust_payload_ref {
-            rust::message::Payload::Value(value_ref) => Payload::JSON {
+            rust::message::Payload::Value(value_ref) => Payload::JSONPayload {
                 json: value_ref.as_ref().into(),
             },
             rust::message::Payload::Binary(bytes_ref) => Payload::Binary {

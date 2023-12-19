@@ -22,11 +22,7 @@ use url::Url;
 use crate::ffi::observable_status::StatusesError;
 
 /// All errors that can be produced by this library.
-#[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum PhoenixError {
     /// Timeout elapsed
     #[error("timeout elapsed")]
@@ -74,31 +70,37 @@ impl From<url::ParseError> for PhoenixError {
         }
     }
 }
-
-#[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+/// A uniffi supported wrapper around [uniffi::Error].
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum URLParseError {
+    /// Empty host
     #[error("empty host")]
     EmptyHost,
+    /// Invalid international domain
     #[error("invalid international domain name")]
     IdnaError,
+    /// Invalid port number
     #[error("invalid port number")]
     InvalidPort,
+    /// Invalid ipv4 address.
     #[error("invalid IPv4 address")]
     InvalidIpv4Address,
+    /// Invalid ipv6 address.
     #[error("invalid IPv6 address")]
     InvalidIpv6Address,
+    /// Invalid domain character
     #[error("invalid domain character")]
     InvalidDomainCharacter,
+    /// Relative URL without a base
     #[error("relative URL without a base")]
     RelativeUrlWithoutBase,
+    /// Relative URL with a cannot-be-a-base base"
     #[error("relative URL with a cannot-be-a-base base")]
     RelativeUrlWithCannotBeABaseBase,
+    /// A cannot-be-a-base URL doesn’t have a host to set
     #[error("a cannot-be-a-base URL doesn’t have a host to set")]
     SetHostOnCannotBeABaseUrl,
+    /// URLs more than 4 GB are not supported
     #[error("URLs more than 4 GB are not supported")]
     Overflow,
 }
@@ -155,13 +157,9 @@ from_for_error!(channel::CastError, Channel, channel);
 from_for_error!(channel::LeaveError, Channel, channel);
 from_for_error!(channel::ChannelShutdownError, Channel, channel);
 
-#[cfg(feature = "uniffi")]
 use crate::UniffiCustomTypeConverter;
 
-
-#[cfg(feature = "uniffi")]
 uniffi::custom_type!(Url, String);
-#[cfg(feature = "uniffi")]
 impl UniffiCustomTypeConverter for Url {
     type Builtin = String;
 
