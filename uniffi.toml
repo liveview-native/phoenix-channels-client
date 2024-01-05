@@ -1,5 +1,20 @@
 [bindings.kotlin.custom_types.Url]
 type_name = "URL"
-imports = [ "java.net.URL" ]
-into_custom = "URL({})"
+imports = [ "java.net.URI", "java.net.URL" ]
+into_custom = "URI({}).toURL()"
 from_custom = "{}.toString()"
+
+[bindings.swift.custom_types.Url]
+type_name = "URL"
+# Modules that need to be imported
+imports = ["Foundation"]
+# Functions to convert between strings and URLs
+into_custom = "URL(string: {})!"
+from_custom = "String(describing: {})"
+
+[bindings.kotlin]
+package_name = "org.phoenixframework.liveviewnative.channel"
+
+[bindings.swift]
+omit_argument_labels = false # In the future we will make this true because argument labels are annoying.
+module_name = "PhoenixChannelsClient"

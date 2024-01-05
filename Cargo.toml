@@ -29,7 +29,7 @@ path = "uniffi-bindgen.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["uniffi"]
+default = []
 nightly = []
 native-tls = ["tokio-tungstenite/native-tls"]
 
@@ -46,15 +46,17 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 strum_macros = "0.25.0"
 thiserror = "1.0"
-tokio = { version = "1.21", features = ["full", "tracing", "test-util"] }
+tokio = { version = "1.35", features = ["sync", "macros", "time", "tracing"] }
 tokio-tungstenite = "0.21.0"
-uniffi = { version = "0.25.3", features = ["cli"], optional = true}
+uniffi = { version = "0.25.3", features = ["cli", "tokio"] }
 url = "2.5"
 uuid = { version = "1.6.1", features = ["v4"] }
 
 [dev-dependencies]
 chrono = "0.4.31"
 env_logger = "0.10"
+uniffi = { version = "0.25.3", features = ["bindgen-tests", "tokio", "cli"]}
+tokio = { version = "1.35", features = ["full", "tracing", "test-util"] }
 
 [build-dependencies]
-uniffi = { version = "0.25.3", features = ["build"], optional = true}
+uniffi = { version = "0.25.3", features = ["build"] }

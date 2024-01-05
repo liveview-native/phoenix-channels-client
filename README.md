@@ -11,7 +11,7 @@ use cases already. The following is a list of known missing features:
 
 ## About
 
-This client was built to support its use in the [LiveView Native core library](https://github.com/liveview-native/liveview-native-core), 
+This client was built to support its use in the [LiveView Native core library](https://github.com/liveview-native/liveview-native-core),
 which is also implemented in Rust.
 
 The client is implemented on top of `tokio`, and is designed for the Rust async ecosystem, though it is possible to use the
@@ -41,7 +41,7 @@ nightly APIs for operating on slices, which we use while parsing.
 
 ## Example
 
-```rust
+```rust,no_run
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -93,14 +93,14 @@ async fn main() {
 
     // Send a message, waiting for a reply until timeout
     let reply_payload = channel.call(
-        Event::from_string("reply_ok_tuple".to_string()), 
-        Payload::json_from_serialized(json!({ "name": "foo", "message": "hi"}).to_string()).unwrap(), 
+        Event::from_string("reply_ok_tuple".to_string()),
+        Payload::json_from_serialized(json!({ "name": "foo", "message": "hi"}).to_string()).unwrap(),
         Duration::from_secs(5)
     ).await.unwrap();
 
     // Send a message, not waiting for a reply
     channel.cast(
-        Event::from_string("noreply".to_string()), 
+        Event::from_string("noreply".to_string()),
         Payload::json_from_serialized(json!({ "name": "foo", "message": "jeez"}).to_string()).unwrap()
     ).await.unwrap();
 

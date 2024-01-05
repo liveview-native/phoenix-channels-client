@@ -130,7 +130,7 @@ pub enum ConnectError {
     /// A [tokio_tungstenite::WebSocketStream] from the underlying
     /// [tungstenite::protocol::WebSocket].
     #[error("websocket error: {0}")]
-    WebSocketError(#[from] Arc<tungstenite::Error>),
+    WebSocket(#[from] Arc<tungstenite::Error>),
     /// [Socket] shutting down because [Socket::shutdown] was called.
     #[error("socket shutting down")]
     ShuttingDown,

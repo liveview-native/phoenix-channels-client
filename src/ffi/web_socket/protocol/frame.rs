@@ -4,11 +4,7 @@ pub(crate) mod coding;
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::Frame], but with `uniffi` support.
 /// A struct representing a WebSocket frame.
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Record)
-)]
+#[derive(Debug, Clone, Eq, PartialEq, uniffi::Record)]
 pub struct Frame {
     header: FrameHeader,
     payload: Vec<u8>,
@@ -25,11 +21,7 @@ impl From<&tokio_tungstenite::tungstenite::protocol::frame::Frame> for Frame {
 /// [tokio_tungstenite::tungstenite::protocol::frame::FrameHeader], but with `uniffi` support.
 /// A struct representing a WebSocket frame header.
 #[allow(missing_copy_implementations)]
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Record)
-)]
+#[derive(Debug, Clone, Eq, PartialEq, uniffi::Record)]
 pub struct FrameHeader {
     /// Indicates that the frame is the last one of a possibly fragmented message.
     pub is_final: bool,
@@ -70,11 +62,7 @@ impl From<&tokio_tungstenite::tungstenite::protocol::frame::FrameHeader> for Fra
 
 /// [tokio_tungstenite::tungstenite::protocol::frame::CloseFrame], but with `uniffi::support`
 /// A struct representing the close command.
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Record)
-)]
+#[derive(Debug, Clone, Eq, PartialEq, uniffi::Record)]
 pub struct CloseFrame {
     /// The reason as a code.
     pub code: TungsteniteCloseCode,

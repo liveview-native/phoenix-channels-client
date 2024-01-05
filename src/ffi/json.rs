@@ -4,12 +4,8 @@ use std::fmt::{Display, Formatter};
 
 use crate::ffi::io::error::IoError;
 
-/// Replicates [serde_json::value::Value], but with `uniffi` support.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+/// Replicates [serde_json::Value], but with `uniffi` support.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum JSON {
     /// JSON `null`
     Null,
@@ -19,12 +15,12 @@ pub enum JSON {
         bool: bool,
     },
     /// JSON integer or float
-    Number {
+    Numb {
         /// The integer or float
         number: Number,
     },
     /// JSON string
-    String {
+    Str {
         /// The string
         string: String,
     },
@@ -59,8 +55,8 @@ impl From<JSON> for serde_json::Value {
         match value {
             JSON::Null => serde_json::Value::Null,
             JSON::Bool { bool } => serde_json::Value::Bool(bool),
-            JSON::Number { number } => serde_json::Value::Number(number.into()),
-            JSON::String { string } => serde_json::Value::String(string),
+            JSON::Numb { number } => serde_json::Value::Number(number.into()),
+            JSON::Str { string } => serde_json::Value::String(string),
             JSON::Array { array } => {
                 serde_json::Value::Array(array.into_iter().map(From::from).collect())
             }
@@ -79,10 +75,10 @@ impl From<serde_json::Value> for JSON {
         match serde_value_ref {
             serde_json::Value::Null => JSON::Null,
             serde_json::Value::Bool(bool) => JSON::Bool { bool },
-            serde_json::Value::Number(number) => JSON::Number {
+            serde_json::Value::Number(number) => JSON::Numb {
                 number: number.into(),
             },
-            serde_json::Value::String(string) => JSON::String { string },
+            serde_json::Value::String(string) => JSON::Str { string },
             serde_json::Value::Array(array) => JSON::Array {
                 array: array.into_iter().map(From::from).collect(),
             },
@@ -100,10 +96,10 @@ impl From<&serde_json::Value> for JSON {
         match serde_value_ref {
             serde_json::Value::Null => JSON::Null,
             serde_json::Value::Bool(bool) => JSON::Bool { bool: *bool },
-            serde_json::Value::Number(number) => JSON::Number {
+            serde_json::Value::Number(number) => JSON::Numb {
                 number: number.into(),
             },
-            serde_json::Value::String(string) => JSON::String {
+            serde_json::Value::String(string) => JSON::Str {
                 string: string.clone(),
             },
             serde_json::Value::Array(array) => JSON::Array {
@@ -119,16 +115,24 @@ impl From<&serde_json::Value> for JSON {
     }
 }
 
-/// Replicates [serde_json::number::Number] and [serde_json::number::N], but with `uniffi` support.
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+/// Replicates [serde_json::Number] but with `uniffi` support.
+#[derive(Copy, Clone, Debug, PartialEq, uniffi::Enum)]
 pub enum Number {
-    PosInt { pos: u64 },
-    NegInt { neg: i64 },
-    Float { float: f64 },
+    /// Positive number
+    PosInt {
+        /// Positive number
+        pos: u64
+    },
+    /// Negative number
+    NegInt {
+        /// Negative number
+        neg: i64
+    },
+    /// Float
+    Float {
+        /// Float
+        float: f64
+    },
 }
 // Implementing Eq is fine since any float values are always finite.
 impl Eq for Number {}
@@ -167,11 +171,7 @@ impl From<&serde_json::Number> for Number {
 }
 
 /// Error from [JSON::deserialize]
-#[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum JSONDeserializationError {
     /// There was error reading from the underlying IO device after reading `column` of `line`.
     #[error("IO error on line {line} column {column}: {io_error}")]

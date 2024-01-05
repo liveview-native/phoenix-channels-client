@@ -4,11 +4,7 @@ pub(crate) mod frame;
 
 /// [tokio_tungstenite::tungstenite::protocol::Message], but with `uniffi` support.
 /// An enum representing the various forms of a WebSocket message.
-#[derive(Debug, Eq, PartialEq, Clone)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Enum)
-)]
+#[derive(Debug, Eq, PartialEq, Clone, uniffi::Enum)]
 pub enum WebSocketMessage {
     /// A text WebSocket message
     Text {
@@ -42,7 +38,7 @@ pub enum WebSocketMessage {
         close_frame: Option<CloseFrame>,
     },
     /// Raw frame. Note, that you're not going to get this value while reading the message.
-    Frame {
+    WebSocketFrame {
         /// A raw frame that hasn't been categorized into the other variants.
         frame: Frame,
     },
@@ -65,7 +61,7 @@ impl From<&tokio_tungstenite::tungstenite::Message> for WebSocketMessage {
             tokio_tungstenite::tungstenite::Message::Close(close_frame) => Self::Close {
                 close_frame: close_frame.as_ref().map(From::from),
             },
-            tokio_tungstenite::tungstenite::Message::Frame(frame) => Self::Frame {
+            tokio_tungstenite::tungstenite::Message::Frame(frame) => Self::WebSocketFrame {
                 frame: frame.into(),
             },
         }

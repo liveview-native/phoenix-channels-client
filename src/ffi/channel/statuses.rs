@@ -8,29 +8,18 @@ use crate::ChannelStatus;
 
 /// Waits for [ChannelStatus] changes from the [Channel](crate::Channel).
 // Can't be generic because `uniffi` does not support generics
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Object)
-)]
+#[derive(uniffi::Object)]
 pub struct ChannelStatuses(
     observable_status::Statuses<rust::channel::Status, Arc<rust::message::Payload>>,
 );
-/*
- *TODO: Nested results do not work when running uniffi-bindgen on build library.
-#[cfg_attr(
-    feature = "uniffi",
-    uniffi::export,
-)]
-*/
+#[uniffi::export(async_runtime = "tokio")]
 impl ChannelStatuses {
     /// Wait for next [ChannelStatus] when the [Channel::status](super::Channel::status) changes.
     pub async fn status(
         &self,
-    ) -> Result<Result<ChannelStatus, ChannelStatusJoinError>, StatusesError> {
-        self.0
-            .status()
-            .await
-            .map(|result| result.map(From::from).map_err(From::from))
+    ) -> Result<ChannelStatus, StatusesError> {
+        let status = self.0.status().await?.map_err(ChannelStatusJoinError::from)?;
+        Ok(status.into())
     }
 }
 impl From<observable_status::Statuses<rust::channel::Status, Arc<rust::message::Payload>>>
@@ -44,11 +33,7 @@ impl From<observable_status::Statuses<rust::channel::Status, Arc<rust::message::
 }
 
 /// Errors when calling [Channel::join](super::Channel::join).
-#[derive(Clone, Debug, thiserror::Error)]
-#[cfg_attr(
-    feature = "uniffi",
-    derive(uniffi::Error)
-)]
+#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
 pub enum ChannelStatusJoinError {
     /// The [Channel::payload](super::Channel::payload) was rejected when attempting to
     /// [Channel::join](super::Channel::join) or automatically rejoin

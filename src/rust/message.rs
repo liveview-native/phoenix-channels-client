@@ -741,7 +741,7 @@ impl From<Vec<u8>> for Payload {
 impl From<ffi::message::Payload> for Payload {
     fn from(ffi_payload: ffi::message::Payload) -> Self {
         match ffi_payload {
-            ffi::message::Payload::JSON { json } => Self::Value(Arc::new(json.into())),
+            ffi::message::Payload::JSONPayload { json } => Self::Value(Arc::new(json.into())),
             ffi::message::Payload::Binary { bytes } => Self::Binary(bytes.into()),
         }
     }
