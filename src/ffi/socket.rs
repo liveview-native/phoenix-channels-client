@@ -181,6 +181,7 @@
 //! # }
 
 use atomic_take::AtomicTake;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
@@ -273,7 +274,7 @@ pub struct Socket {
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
     #[uniffi::constructor]
-    pub fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
+    pub fn spawn(mut url: Url, headers: Option<HashMap<String, String>>) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
             _ => return Err(SpawnError::UnsupportedScheme { url }),
@@ -293,6 +294,7 @@ impl Socket {
         let (channel_send_command_tx, channel_send_command_rx) = mpsc::channel(50);
         let join_handle = Listener::spawn(
             url.clone(),
+            headers.clone(),
             status.clone(),
             channel_spawn_rx,
             state_command_rx,
