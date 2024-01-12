@@ -222,7 +222,7 @@ use crate::ffi::topic::Topic;
 use crate::ffi::web_socket::error::WebSocketError;
 use crate::ffi::{instant_to_system_time, web_socket};
 use crate::rust;
-use crate::rust::channel::listener::{ObservableStatus, SendCommand, StateCommand};
+use crate::rust::channel::listener::{ObservableStatus, SendCommand, StateCommand, JoinError};
 use crate::rust::channel::Call;
 
 pub mod statuses;
@@ -298,8 +298,11 @@ pub struct Channel {
 #[uniffi::export(async_runtime = "tokio")]
 impl Channel {
     /// Join [Channel::topic] with [Channel::payload] within `timeout`.
-    pub async fn join(&self, timeout: Duration) -> Result<(), ChannelJoinError> {
-        let (joined_tx, joined_rx) = oneshot::channel();
+    pub async fn join(&self, timeout: Duration) -> Result<Payload, ChannelJoinError> {
+        let (joined_tx, joined_rx) : (
+            oneshot::Sender<Result<crate::rust::message::Payload, JoinError>>,
+            oneshot::Receiver<Result<crate::rust::message::Payload, JoinError>>
+        ) = oneshot::channel();
 
         match self
             .state_command_tx
@@ -311,7 +314,7 @@ impl Channel {
             .await
         {
             Ok(()) => match time::timeout(timeout, joined_rx).await? {
-                Ok(result) => result.map_err(From::from),
+                Ok(result) => result.map_err(From::from).map(From::from),
                 Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
             },
             Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),

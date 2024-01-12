@@ -942,6 +942,7 @@ impl Connected {
                     push: push_rx,
                     broadcast: broadcast_rx,
                     left: left_rx,
+                    payload: reply.payload,
                 };
 
                 Ok(joined)
