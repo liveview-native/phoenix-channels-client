@@ -17,7 +17,7 @@ pub use ffi::channel::{
 pub use ffi::io::error::IoError;
 pub use ffi::json::{JSONDeserializationError, JSON, Number};
 pub use ffi::message::{Event, Payload, PhoenixEvent};
-pub use ffi::socket::{ConnectError, Socket, SocketStatus, SocketStatuses, SocketError};
+pub use ffi::socket::{ConnectError, SocketChannelError, Socket, SocketStatus, SocketStatuses, SocketError, SpawnError};
 pub use ffi::topic::Topic;
 pub use ffi::web_socket::error::WebSocketError;
 pub use ffi::web_socket::protocol::WebSocketMessage;
@@ -25,6 +25,6 @@ pub use ffi::{
     PhoenixError,
     URLParseError,
 };
-pub use url::Url;
+pub use url;
 
 uniffi::setup_scaffolding!("phoenix_channels_client");

@@ -37,7 +37,7 @@ use crate::rust::{channel, socket};
 
 pub(crate) struct Listener {
     url: Arc<Url>,
-    headers: Option<HashMap<String, String>>,
+    cookies: Option<Vec<String>>,
     channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
     state_command_rx: mpsc::Receiver<StateCommand>,
     channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
@@ -49,7 +49,7 @@ pub(crate) struct Listener {
 impl Listener {
     pub(crate) fn spawn(
         url: Arc<Url>,
-        headers: Option<HashMap<String, String>>,
+        cookies: Option<Vec<String>>,
         socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
@@ -58,7 +58,7 @@ impl Listener {
     ) -> JoinHandle<Result<(), ShutdownError>> {
         let listener = Self::init(
             url,
-            headers,
+            cookies,
             socket_status,
             channel_spawn_rx,
             state_command_rx,
@@ -71,7 +71,7 @@ impl Listener {
 
     fn init(
         url: Arc<Url>,
-        headers: Option<HashMap<String, String>>,
+        cookies: Option<Vec<String>>,
         socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
@@ -82,7 +82,7 @@ impl Listener {
 
         Self {
             url,
-            headers,
+            cookies,
             socket_status,
             channel_spawn_rx,
             state_command_rx,
@@ -697,9 +697,9 @@ impl Listener {
             .header("Sec-WebSocket-Key", generate_key())
             .uri(url.as_str());
 
-        if let Some(headers) = &self.headers {
-            for (k, v) in headers {
-                request = request.header(k, v);
+        if let Some(cookies) = &self.cookies {
+            for cookie in cookies {
+                request = request.header("Cookie", cookie);
             }
         }
         match time::timeout_at(

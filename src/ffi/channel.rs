@@ -22,7 +22,7 @@
 //! # )?;
 //! #
 //! # // Create a socket
-//! # let socket = Socket::spawn(url).unwrap();
+//! # let socket = Socket::spawn(url, None).unwrap();
 //! #
 //! # // Connect the socket
 //! # socket.connect(Duration::from_secs(10)).await?;
@@ -67,7 +67,7 @@
 //! # )?;
 //! #
 //! # // Create a socket
-//! # let socket = Socket::spawn(url).unwrap();
+//! # let socket = Socket::spawn(url, None).unwrap();
 //! #
 //! # // Connect the socket
 //! # socket.connect(Duration::from_secs(10)).await?;
@@ -106,7 +106,7 @@
 //! # )?;
 //! #
 //! # // Create a socket
-//! # let socket = Socket::spawn(url)?;
+//! # let socket = Socket::spawn(url, None)?;
 //! #
 //! # // Connect the socket
 //! # socket.connect(Duration::from_secs(10)).await?;
@@ -181,7 +181,7 @@
 //! #         &[("shared_secret", "supersecret"), ("id", id)],
 //! #     ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url).unwrap();
+//! #     let socket = Socket::spawn(url, None).unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
