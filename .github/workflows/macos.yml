@@ -20,7 +20,7 @@ jobs:
       - name: Set up Elixir, kotlin and ktlint
         run: brew install elixir kotlin ktlint
       - name: Cache Cargo
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
@@ -29,7 +29,7 @@ jobs:
           key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache deps
         id: cache-deps
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-elixir-deps
         with:
@@ -39,7 +39,7 @@ jobs:
             ${{ runner.os }}-mix-${{ env.cache-name }}-
       - name: Cache compiled build
         id: cache-build
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-compiled-build
         with:
@@ -87,7 +87,7 @@ jobs:
           toolchain: ${{ env.TOOLCHAIN }}
           default: true
       - name: Cache Cargo
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
