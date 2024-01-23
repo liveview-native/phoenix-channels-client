@@ -181,7 +181,6 @@
 //! # }
 
 use atomic_take::AtomicTake;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
@@ -489,7 +488,10 @@ impl From<observable_status::Statuses<rust::socket::Status, Arc<tungstenite::Err
 pub enum SpawnError {
     /// Occurs when the configured url's scheme is not ws or wss.
     #[error("Unsupported scheme in url ({url}). Supported schemes are ws and wss.")]
-    UnsupportedScheme { url: Url },
+    UnsupportedScheme {
+        /// The url for this unsupported scheme.
+        url: Url
+    },
 }
 
 /// Errors from [Socket::connect].
@@ -559,7 +561,11 @@ impl From<rust::socket::ShutdownError> for ConnectError {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum SocketChannelError {
     #[error("socket shutdown: {shutdown_error}")]
-    Shutdown { shutdown_error: SocketShutdownError },
+    /// The shutdown error for this SocketChannelError
+    Shutdown {
+        /// The shutdown error for this shutdown
+        shutdown_error: SocketShutdownError
+    },
 }
 impl From<rust::socket::ShutdownError> for SocketChannelError {
     fn from(rust_shutdown_error: rust::socket::ShutdownError) -> Self {
