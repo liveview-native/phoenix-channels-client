@@ -50,7 +50,7 @@ tokio = { version = "1.35", features = ["sync", "macros", "time", "tracing"] }
 tokio-tungstenite = "0.21.0"
 uniffi = { version = "0.25.3", features = ["cli", "tokio"] }
 url = "2.5"
-uuid = { version = "1.6.1", features = ["v4"] }
+uuid = { version = "1.7.0", features = ["v4"] }
 
 [dev-dependencies]
 chrono = "0.4.31"
