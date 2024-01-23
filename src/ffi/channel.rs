@@ -208,7 +208,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use atomic_take::AtomicTake;
-use log::{debug, error};
+use log::{debug, error, trace};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -354,8 +354,8 @@ impl Channel {
     ///
     /// This function does not wait for any reply, if you need the reply, then use `send` or `send_with_timeout`.
     pub async fn cast(&self, event: Event, payload: Payload) -> Result<(), CastError> {
-        debug!(
-            "sending event {:?} with payload {:#?}, replies ignored",
+        trace!(
+            "sending event {:?} with payload {:?}, replies ignored",
             &event, &payload
         );
 
@@ -384,8 +384,8 @@ impl Channel {
         payload: Payload,
         timeout: Duration,
     ) -> Result<Payload, CallError> {
-        debug!(
-            "sending event {:?} with timeout {:?} and payload {:#?}",
+        trace!(
+            "sending event {:?} with timeout {:?} and payload {:?}",
             &event, &timeout, &payload
         );
 

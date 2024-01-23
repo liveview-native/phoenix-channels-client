@@ -11,7 +11,7 @@ use std::time::Duration;
 use futures::stream::FuturesUnordered;
 use futures::SinkExt;
 use futures::StreamExt;
-use log::{debug, error};
+use log::{debug, error, trace};
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -578,8 +578,8 @@ impl Listener {
         } = call;
         let reference = Reference::new();
 
-        debug!(
-            "sending event {:?} with payload {:#?} to topic {} joined as {} with ref {}, will wait for reply",
+        trace!(
+            "sending event {:?} with payload {:?} to topic {} joined as {} with ref {}, will wait for reply",
             &event_payload.event, &event_payload.payload, &topic, &join_reference, &reference
         );
 
