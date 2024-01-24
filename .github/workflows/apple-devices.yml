@@ -1,27 +1,33 @@
 # based on https://gist.github.com/learnopengles/60c945b92fbe60a0fecaa0143c35c4a for testing in simulator
-name: aarch64-apple-ios
+name: Apple Simulator devices
 
 on: pull_request
 
 env:
   TOOLCHAIN: nightly
   CARGO_TERM_COLOR: always
-  DYLD_ROOT_PATH: /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/
+  CARGO_DINGHY_REV: "a8ec5b0"
 
 jobs:
   integration_tests:
-    # rust cross-compilation
-    # macos-*-xlarge is needed to get M1 chips - https://github.blog/2023-10-02-introducing-the-new-apple-silicon-powered-m1-macos-larger-runner-for-github-actions/
-    runs-on: self-hosted
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        rust-target: ["x86_64-apple-ios" ]
+        apple-sim: [ "iOS" ]
+        include:
+          - rust-target: "x86_64-apple-tvos"
+            apple-sim: "tvOS"
+          - rust-target: "x86_64-apple-watchos-sim"
+            apple-sim: "watchOS"
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly
-          targets:
-            aarch64-apple-ios-sim
+          toolchain: ${{ env.TOOLCHAIN }}
+          components: rust-src
 
       - name: Set up Elixir
         run: brew install elixir
@@ -32,7 +38,7 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_DINGHY_REV }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache deps
         id: cache-deps
         uses: actions/cache@v4
@@ -54,10 +60,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-${{ env.cache-name }}-
             ${{ runner.os }}-mix-
-
-      - name: Build phoenix_channels_client
-        run: cargo build --all-targets
-
+      - name: Install cargo-dinghy
+        run: |
+          if ! command -v cargo-dinghy &> /dev/null; then
+            cargo install --git https://github.com/liveview-native/dinghy.git --force --rev ${CARGO_DINGHY_REV} cargo-dinghy
+          fi
       - name: Install hex
         run: mix local.hex --force
       - name: Install rebar3
@@ -72,23 +79,15 @@ jobs:
         working-directory: ./tests/support/test_server
         run: mix phx.server &
 
-      - name: Set linker
-        run: echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$PWD/tests/support/linker_shim.sh" >> $GITHUB_ENV
-      - name: Build integration tests
-        run: cargo test --no-run --target=aarch64-apple-ios-sim
-      - name: Copy integration tests to app bundle
-        run: |
-          cp `find target/aarch64-apple-ios-sim/debug/deps/ -perm +111 -type f -name "integration_test-*"` tests/support/app/integration_test
-          ls tests/support/app/integration_test
       - name: Start Simulator
         uses: futureware-tech/simulator-action@v3
         with:
-          os: 'iOS'
-      - name: Install integration tests into Simulator
-        run: |
-          xcrun simctl install booted tests/support/app
+          os: ${{ matrix.apple-sim }}
 
       - name: Test phoenix_channel_clients
+        env:
+          DINGHY_LOG: debug
         run: |
-          xcrun simctl launch --console booted com.rust.tests | tee output
-          grep -q "test result: ok." output
+          cargo dinghy all-platforms
+          cargo dinghy all-devices
+          cargo -Zbuild-std test --target ${{ matrix.rust-target }}
