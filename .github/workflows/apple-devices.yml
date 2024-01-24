@@ -26,6 +26,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.TOOLCHAIN }}
+          components: rust-src
 
       - name: Set up Elixir
         run: brew install elixir
