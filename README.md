@@ -60,7 +60,7 @@ async fn main() {
     ).unwrap();
 
     // Create a socket
-    let socket = Socket::spawn(url).unwrap();
+    let socket = Socket::spawn(url, None).unwrap();
 
     // Connect the socket
     socket.connect(Duration::from_secs(10)).await.unwrap();

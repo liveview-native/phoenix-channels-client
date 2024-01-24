@@ -22,7 +22,7 @@
 //! # )?;
 //! #
 //! # // Create a socket
-//! # let socket = Socket::spawn(url).unwrap();
+//! # let socket = Socket::spawn(url, None).unwrap();
 //! #
 //! # // Connect the socket
 //! # socket.connect(Duration::from_secs(10)).await?;
@@ -67,7 +67,7 @@
 //! # )?;
 //! #
 //! # // Create a socket
-//! # let socket = Socket::spawn(url).unwrap();
+//! # let socket = Socket::spawn(url, None).unwrap();
 //! #
 //! # // Connect the socket
 //! # socket.connect(Duration::from_secs(10)).await?;
@@ -106,7 +106,7 @@
 //! # )?;
 //! #
 //! # // Create a socket
-//! # let socket = Socket::spawn(url)?;
+//! # let socket = Socket::spawn(url, None)?;
 //! #
 //! # // Connect the socket
 //! # socket.connect(Duration::from_secs(10)).await?;
@@ -181,7 +181,7 @@
 //! #         &[("shared_secret", "supersecret"), ("id", id)],
 //! #     ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url).unwrap();
+//! #     let socket = Socket::spawn(url, None).unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
@@ -208,7 +208,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use atomic_take::AtomicTake;
-use log::{debug, error};
+use log::{debug, error, trace};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -222,7 +222,7 @@ use crate::ffi::topic::Topic;
 use crate::ffi::web_socket::error::WebSocketError;
 use crate::ffi::{instant_to_system_time, web_socket};
 use crate::rust;
-use crate::rust::channel::listener::{ObservableStatus, SendCommand, StateCommand};
+use crate::rust::channel::listener::{ObservableStatus, SendCommand, StateCommand, JoinError};
 use crate::rust::channel::Call;
 
 pub mod statuses;
@@ -298,8 +298,11 @@ pub struct Channel {
 #[uniffi::export(async_runtime = "tokio")]
 impl Channel {
     /// Join [Channel::topic] with [Channel::payload] within `timeout`.
-    pub async fn join(&self, timeout: Duration) -> Result<(), ChannelJoinError> {
-        let (joined_tx, joined_rx) = oneshot::channel();
+    pub async fn join(&self, timeout: Duration) -> Result<Payload, ChannelJoinError> {
+        let (joined_tx, joined_rx) : (
+            oneshot::Sender<Result<crate::rust::message::Payload, JoinError>>,
+            oneshot::Receiver<Result<crate::rust::message::Payload, JoinError>>
+        ) = oneshot::channel();
 
         match self
             .state_command_tx
@@ -311,7 +314,7 @@ impl Channel {
             .await
         {
             Ok(()) => match time::timeout(timeout, joined_rx).await? {
-                Ok(result) => result.map_err(From::from),
+                Ok(result) => result.map_err(From::from).map(From::from),
                 Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
             },
             Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
@@ -351,8 +354,8 @@ impl Channel {
     ///
     /// This function does not wait for any reply, if you need the reply, then use `send` or `send_with_timeout`.
     pub async fn cast(&self, event: Event, payload: Payload) -> Result<(), CastError> {
-        debug!(
-            "sending event {:?} with payload {:#?}, replies ignored",
+        trace!(
+            "sending event {:?} with payload {:?}, replies ignored",
             &event, &payload
         );
 
@@ -381,8 +384,8 @@ impl Channel {
         payload: Payload,
         timeout: Duration,
     ) -> Result<Payload, CallError> {
-        debug!(
-            "sending event {:?} with timeout {:?} and payload {:#?}",
+        trace!(
+            "sending event {:?} with timeout {:?} and payload {:?}",
             &event, &timeout, &payload
         );
 

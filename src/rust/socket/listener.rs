@@ -11,7 +11,7 @@ use std::time::Duration;
 use futures::stream::FuturesUnordered;
 use futures::SinkExt;
 use futures::StreamExt;
-use log::{debug, error};
+use log::{debug, error, trace};
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -37,6 +37,7 @@ use crate::rust::{channel, socket};
 
 pub(crate) struct Listener {
     url: Arc<Url>,
+    cookies: Option<Vec<String>>,
     channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
     state_command_rx: mpsc::Receiver<StateCommand>,
     channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
@@ -48,6 +49,7 @@ pub(crate) struct Listener {
 impl Listener {
     pub(crate) fn spawn(
         url: Arc<Url>,
+        cookies: Option<Vec<String>>,
         socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
@@ -56,6 +58,7 @@ impl Listener {
     ) -> JoinHandle<Result<(), ShutdownError>> {
         let listener = Self::init(
             url,
+            cookies,
             socket_status,
             channel_spawn_rx,
             state_command_rx,
@@ -68,6 +71,7 @@ impl Listener {
 
     fn init(
         url: Arc<Url>,
+        cookies: Option<Vec<String>>,
         socket_status: ObservableStatus,
         channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
         state_command_rx: mpsc::Receiver<StateCommand>,
@@ -78,6 +82,7 @@ impl Listener {
 
         Self {
             url,
+            cookies,
             socket_status,
             channel_spawn_rx,
             state_command_rx,
@@ -573,8 +578,8 @@ impl Listener {
         } = call;
         let reference = Reference::new();
 
-        debug!(
-            "sending event {:?} with payload {:#?} to topic {} joined as {} with ref {}, will wait for reply",
+        trace!(
+            "sending event {:?} with payload {:?} to topic {} joined as {} with ref {}, will wait for reply",
             &event_payload.event, &event_payload.payload, &topic, &join_reference, &reference
         );
 
@@ -674,9 +679,32 @@ impl Listener {
         created_at: Instant,
         reconnect: Reconnect,
     ) -> Result<State, (ConnectError, Reconnect)> {
+        let url = self.url.clone();
+        let host = url.host().expect("Failed to get host from url");
+        use tokio_tungstenite::tungstenite::handshake::client::{
+            Request,
+            generate_key,
+        };
+
+        // This comes from
+        // https://github.com/snapview/tungstenite-rs/blob/2ee05d10803d95ad48b3ad03d9d9a03164060e76/src/client.rs#L219-L242
+        let mut request = Request::builder()
+            .method("GET")
+            .header("Host", host.to_string())
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", generate_key())
+            .uri(url.as_str());
+
+        if let Some(cookies) = &self.cookies {
+            for cookie in cookies {
+                request = request.header("Cookie", cookie);
+            }
+        }
         match time::timeout_at(
             created_at + reconnect.connect_timeout,
-            tokio_tungstenite::connect_async(self.url.as_ref()),
+            tokio_tungstenite::connect_async(request.body(()).expect("Failed to build http request")),
         )
         .await
         {
@@ -914,6 +942,7 @@ impl Connected {
                     push: push_rx,
                     broadcast: broadcast_rx,
                     left: left_rx,
+                    payload: reply.payload,
                 };
 
                 Ok(joined)

@@ -21,7 +21,7 @@
 //! )?;
 //!
 //! // Create a socket
-//! let socket = Socket::spawn(url);
+//! let socket = Socket::spawn(url, None);
 //! # Ok(())
 //! # }
 //! ```
@@ -48,7 +48,7 @@
 //! )?;
 //!
 //! // Create a socket
-//! let socket = Socket::spawn(url)?;
+//! let socket = Socket::spawn(url, None)?;
 //!
 //! // Connecting the socket returns the authorization error
 //! match socket.connect(Duration::from_secs(5)).await {
@@ -89,7 +89,7 @@
 //!     "ws://127.0.0.1:9002/socket/websocket",
 //!     &[("secret", secret.clone()), ("id", id.clone())],
 //! )?;
-//! let secret_socket = Socket::spawn(secret_url).unwrap();
+//! let secret_socket = Socket::spawn(secret_url, None).unwrap();
 //! secret_socket.connect(Duration::from_secs(10)).await?;
 //! let mut statuses = secret_socket.statuses();
 //!
@@ -124,7 +124,7 @@
 //! #         &[("shared_secret", "supersecret"), ("id", id.clone())],
 //! #     ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url).unwrap();
+//! #     let socket = Socket::spawn(url, None).unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
@@ -160,7 +160,7 @@
 //! #        &[("secret", secret), ("id", id.clone())],
 //! #    ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url).unwrap();
+//! #     let socket = Socket::spawn(url, None).unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
@@ -273,7 +273,7 @@ pub struct Socket {
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
     #[uniffi::constructor]
-    pub fn spawn(mut url: Url) -> Result<Arc<Self>, SpawnError> {
+    pub fn spawn(mut url: Url, cookies: Option<Vec<String>>) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
             _ => return Err(SpawnError::UnsupportedScheme { url }),
@@ -293,6 +293,7 @@ impl Socket {
         let (channel_send_command_tx, channel_send_command_rx) = mpsc::channel(50);
         let join_handle = Listener::spawn(
             url.clone(),
+            cookies.clone(),
             status.clone(),
             channel_spawn_rx,
             state_command_rx,
@@ -487,7 +488,10 @@ impl From<observable_status::Statuses<rust::socket::Status, Arc<tungstenite::Err
 pub enum SpawnError {
     /// Occurs when the configured url's scheme is not ws or wss.
     #[error("Unsupported scheme in url ({url}). Supported schemes are ws and wss.")]
-    UnsupportedScheme { url: Url },
+    UnsupportedScheme {
+        /// The url for this unsupported scheme.
+        url: Url
+    },
 }
 
 /// Errors from [Socket::connect].
@@ -557,7 +561,11 @@ impl From<rust::socket::ShutdownError> for ConnectError {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum SocketChannelError {
     #[error("socket shutdown: {shutdown_error}")]
-    Shutdown { shutdown_error: SocketShutdownError },
+    /// The shutdown error for this SocketChannelError
+    Shutdown {
+        /// The shutdown error for this shutdown
+        shutdown_error: SocketShutdownError
+    },
 }
 impl From<rust::socket::ShutdownError> for SocketChannelError {
     fn from(rust_shutdown_error: rust::socket::ShutdownError) -> Self {

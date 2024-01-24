@@ -213,7 +213,7 @@ impl Listener {
         mut state: State,
         created_at: Instant,
         timeout: Duration,
-        channel_joined_tx: oneshot::Sender<Result<(), JoinError>>,
+        channel_joined_tx: oneshot::Sender<Result<Payload, JoinError>>,
     ) -> Result<State, ChannelShutdownError> {
         match state {
             State::WaitingForSocketToConnect { .. } => unreachable!(),
@@ -236,8 +236,13 @@ impl Listener {
 
                 Ok(state)
             }
-            State::Joined { .. } => {
-                channel_joined_tx.send(Ok(())).ok();
+            State::Joined (
+                Joined {
+                    ref payload,
+                    ..
+                })
+            => {
+                channel_joined_tx.send(Ok(payload.clone())).ok();
 
                 Ok(state)
             }
@@ -254,7 +259,7 @@ impl Listener {
         state: State,
         created_at: Instant,
         timeout: Duration,
-        channel_joined_tx: oneshot::Sender<Result<(), JoinError>>,
+        channel_joined_tx: oneshot::Sender<Result<Payload, JoinError>>,
     ) -> Result<State, ChannelShutdownError> {
         let deadline = created_at + timeout;
         let rejoin = Rejoin {
@@ -305,14 +310,18 @@ impl Listener {
                 push: push_rx,
                 broadcast: broadcast_rx,
                 left: left_rx,
+                payload,
             }) => (
-                Ok(()),
-                State::Joined(Joined {
-                    push_rx,
-                    broadcast_rx,
-                    left_rx,
-                    join_timeout: rejoin.join_timeout,
-                }),
+                Ok(payload.clone()),
+                {
+                    State::Joined(Joined {
+                        payload,
+                        push_rx,
+                        broadcast_rx,
+                        left_rx,
+                        join_timeout: rejoin.join_timeout,
+                    })
+                },
             ),
             Err(socket_join_error) => match socket_join_error {
                 socket::JoinError::Shutdown(shutdown_error) => (
@@ -331,7 +340,7 @@ impl Listener {
             },
         };
 
-        State::send_to_channel_txs(channel_joined_txs, channel_joined_result);
+        State::send_join_playload_to_channel_txs(channel_joined_txs, channel_joined_result);
 
         next_state
     }
@@ -346,7 +355,7 @@ impl Listener {
         mut state: State,
         created_at: Instant,
         rejoin: Rejoin,
-        channel_joined_txs: Vec<oneshot::Sender<Result<(), JoinError>>>,
+        channel_joined_txs: Vec<oneshot::Sender<Result<Payload, JoinError>>>,
     ) -> Result<State, ChannelShutdownError> {
         match self
             .socket
@@ -398,7 +407,7 @@ impl Listener {
             State::Joining(Joining {
                 channel_joined_txs, ..
             }) => {
-                State::send_to_channel_txs(
+                State::send_join_playload_to_channel_txs(
                     channel_joined_txs,
                     Err(JoinError::SocketShutdown(Arc::new(shutdown_error))),
                 );
@@ -454,7 +463,7 @@ impl Listener {
                     .await
                 {
                     Ok(socket_left_rx) => {
-                        State::send_to_channel_txs(
+                        State::send_join_playload_to_channel_txs(
                             joining.channel_joined_txs,
                             Err(JoinError::LeavingWhileJoining),
                         );
@@ -550,7 +559,7 @@ pub(crate) enum StateCommand {
         created_at: Instant,
         /// How long after `created_at` must the join complete
         timeout: Duration,
-        joined_tx: oneshot::Sender<Result<(), JoinError>>,
+        joined_tx: oneshot::Sender<Result<Payload, JoinError>>,
     },
     Leave {
         left_tx: oneshot::Sender<Result<(), LeaveError>>,
@@ -682,7 +691,7 @@ impl State {
                 ..
             }) => match connectivity {
                 Connectivity::Connected | Connectivity::Disconnected(Disconnected::Reconnect) => {
-                    Self::send_to_channel_txs(
+                    Self::send_join_playload_to_channel_txs(
                         channel_joined_txs,
                         Err(JoinError::SocketDisconnected),
                     );
@@ -692,7 +701,7 @@ impl State {
                     }
                 }
                 Connectivity::Disconnected(Disconnected::Disconnect) => {
-                    Self::send_to_channel_txs(
+                    Self::send_join_playload_to_channel_txs(
                         channel_joined_txs,
                         Err(JoinError::SocketDisconnected),
                     );
@@ -700,7 +709,7 @@ impl State {
                     State::WaitingForSocketToConnect { rejoin: None }
                 }
                 Connectivity::Disconnected(Disconnected::Shutdown) => {
-                    Self::send_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
+                    Self::send_join_playload_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
 
                     State::ShuttingDown
                 }
@@ -761,7 +770,7 @@ impl State {
             State::Joining(Joining {
                 channel_joined_txs, ..
             }) => {
-                Self::send_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
+                Self::send_join_playload_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
             }
             State::Leaving(Leaving {
                 channel_left_txs, ..
@@ -769,6 +778,17 @@ impl State {
         };
 
         State::ShuttingDown
+    }
+
+    fn send_join_playload_to_channel_txs<E>(
+        mut channel_txs: Vec<oneshot::Sender<Result<Payload, E>>>,
+        result: Result<Payload, E>,
+    ) where
+        E: Clone,
+    {
+        for channel_tx in channel_txs.drain(0..) {
+            channel_tx.send(result.clone()).ok();
+        }
     }
 
     fn send_to_channel_txs<E>(
@@ -920,6 +940,7 @@ pub type ObservableStatus = crate::rust::observable_status::ObservableStatus<Sta
 #[doc(hidden)]
 #[derive(Debug)]
 pub(crate) struct JoinedChannelReceivers {
+    pub payload: Payload,
     pub push: mpsc::Receiver<Push>,
     pub broadcast: broadcast::Receiver<Broadcast>,
     pub left: oneshot::Receiver<()>,
@@ -960,7 +981,7 @@ impl Rejoin {
 
 pub(crate) struct Joining {
     socket_joined_rx: oneshot::Receiver<Result<JoinedChannelReceivers, socket::JoinError>>,
-    channel_joined_txs: Vec<oneshot::Sender<Result<(), JoinError>>>,
+    channel_joined_txs: Vec<oneshot::Sender<Result<Payload, JoinError>>>,
     rejoin: Rejoin,
 }
 impl Debug for Joining {
@@ -972,6 +993,7 @@ impl Debug for Joining {
 }
 
 pub(crate) struct Joined {
+    payload: Payload,
     push_rx: mpsc::Receiver<Push>,
     broadcast_rx: broadcast::Receiver<Broadcast>,
     left_rx: oneshot::Receiver<()>,
