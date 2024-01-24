@@ -242,7 +242,6 @@ impl Listener {
                     ..
                 })
             => {
-
                 channel_joined_tx.send(Ok(payload.clone())).ok();
 
                 Ok(state)
