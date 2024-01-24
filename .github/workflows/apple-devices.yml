@@ -6,6 +6,7 @@ on: pull_request
 env:
   TOOLCHAIN: nightly
   CARGO_TERM_COLOR: always
+  CARGO_DINGHY_REV: "a8ec5b0"
 
 jobs:
   integration_tests:
@@ -37,7 +38,7 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ env.CARGO_DINGHY_REV }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache deps
         id: cache-deps
         uses: actions/cache@v4
@@ -59,7 +60,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-${{ env.cache-name }}-
             ${{ runner.os }}-mix-
-
+      - name: Install cargo-dinghy
+        run: |
+          if ! command -v cargo-dinghy &> /dev/null; then
+            cargo install --git https://github.com/liveview-native/dinghy.git --force --rev ${CARGO_DINGHY_REV} cargo-dinghy
+          fi
       - name: Install hex
         run: mix local.hex --force
       - name: Install rebar3
@@ -83,4 +88,6 @@ jobs:
         env:
           DINGHY_LOG: debug
         run: |
+          cargo dinghy all-platforms
+          cargo dinghy all-devices
           cargo -Zbuild-std test --target ${{ matrix.rust-target }}
