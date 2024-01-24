@@ -87,6 +87,7 @@ jobs:
           os: 'iOS'
 
       - name: Test phoenix_channel_clients
+        timeout-minutes: 10
         run: |
           cargo-dinghy all-platforms
           cargo-dinghy all-devices
