@@ -12,6 +12,7 @@ pub use ffi::channel::statuses::{ChannelStatusJoinError, ChannelStatuses};
 pub use ffi::observable_status::StatusesError;
 pub use ffi::channel::{
     CallError, Channel, ChannelJoinError, ChannelStatus, EventPayload, Events, EventsError,
+    LeaveError,
     ChannelError,
 };
 pub use ffi::io::error::IoError;

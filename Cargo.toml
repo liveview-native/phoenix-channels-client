@@ -48,15 +48,15 @@ strum_macros = "0.25.0"
 thiserror = "1.0"
 tokio = { version = "1.35", features = ["sync", "macros", "time", "tracing"] }
 tokio-tungstenite = "0.21.0"
-uniffi = { version = "0.25.3", features = ["cli", "tokio"] }
+uniffi = { version = "0.26", features = ["cli", "tokio"] }
 url = "2.5"
 uuid = { version = "1.7.0", features = ["v4"] }
 
 [dev-dependencies]
 chrono = "0.4.31"
 env_logger = "0.10"
-uniffi = { version = "0.25.3", features = ["bindgen-tests", "tokio", "cli"]}
+uniffi = { version = "0.26", features = ["bindgen-tests", "tokio", "cli"]}
 tokio = { version = "1.35", features = ["full", "tracing", "test-util"] }
 
 [build-dependencies]
-uniffi = { version = "0.25.3", features = ["build"] }
+uniffi = { version = "0.26", features = ["build"] }

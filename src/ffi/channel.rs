@@ -715,38 +715,57 @@ impl From<rust::channel::CallError> for CallError {
     }
 }
 
+/// Errors for when leaving a channel fails.
 #[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
 pub enum LeaveError {
-    #[error("timeout joining channel")]
+    /// The leave operation timeout.
+    #[error("timeout leaving channel")]
     Timeout,
+    /// The channel was shutting down when the client was leaving the channel.
     #[error("channel shutting down")]
     ShuttingDown,
+    /// The channel was shutting down when the client was leaving the channel.
     #[error("channel already shutdown")]
     Shutdown,
+    /// The channel already shut down when the client was leaving the channel.
     #[error("socket shutdown: {socket_shutdown_error}")]
     SocketShutdown {
+        /// The shut down error
         socket_shutdown_error: SocketShutdownError,
     },
+    /// There was a websocket error when the client was leaving the channel.
     #[error("web socket error {web_socket_error:?}")]
     WebSocket {
+        /// The specific websocket error for this shutdown.
         web_socket_error: web_socket::error::WebSocketError,
     },
+    /// The server rejected the clients request to leave the channel.
     #[error("server rejected leave")]
     Rejected {
         /// Response from the server of why the leave was rejected
         rejection: Payload,
     },
+    /// A join was initiated before the server could respond if leave was successful
     #[error("A join was initiated before the server could respond if leave was successful")]
     JoinBeforeLeft,
+    /// There was a URL error when leaving the channel.
     #[error("URL error: {url_error}")]
-    Url { url_error: String },
+    Url {
+        /// The url error itself.
+        url_error: String
+    },
+    /// There was an HTTP error when leaving the cheannel.
     #[error("HTTP error: {}", response.status_code)]
     Http {
+        /// The http response for the error.
         response: crate::ffi::http::Response,
     },
     /// HTTP format error.
     #[error("HTTP format error: {error}")]
-    HttpFormat { error: crate::ffi::http::HttpError },
+    HttpFormat {
+        /// The http error.
+        error: crate::ffi::http::HttpError
+    },
 }
 impl From<ChannelShutdownError> for LeaveError {
     fn from(shutdown_error: ChannelShutdownError) -> Self {
