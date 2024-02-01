@@ -172,4 +172,4 @@ jobs:
           cargo-dinghy all-platforms
           cargo-dinghy all-devices
           export RUSTFLAGS="--cfg tokio_unstable"
-          cargo-dinghy -p auto-android-aarch64-api${ANDROID_API} test
+          RANLIB=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ranlib cargo-dinghy -p auto-android-aarch64-api${ANDROID_API} test
