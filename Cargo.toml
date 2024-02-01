@@ -44,7 +44,7 @@ httparse = "1.8"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-strum_macros = "0.25.0"
+strum_macros = "0.26.1"
 thiserror = "1.0"
 tokio = { version = "1.35", features = ["sync", "macros", "time", "tracing"] }
 tokio-tungstenite = "0.21.0"
