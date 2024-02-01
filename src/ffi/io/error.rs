@@ -3,32 +3,31 @@ use std::io::ErrorKind;
 /// [std::io::Error] and [std::io::ErrorKind], but with `uniffi` support.
 #[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
 pub enum IoError {
-    /// An entity was not found, often a file.
+    /// An entity was not found.
     #[error("entity not found")]
     NotFound,
-    /// The operation lacked the necessary privileges to complete.
+    /// Permission Denied for this operation.
     #[error("permission defined")]
     PermissionDenied,
-    /// The connection was refused by the remote server.
+    /// The connection was refused.
     #[error("connection refused")]
     ConnectionRefused,
-    /// The connection was reset by the remote server.
+    /// The connection was reset by server.
     #[error("connection reset")]
     ConnectionReset,
-    /// The remote host is not reachable.
+    /// The host is not reachable.
     #[error("host unreachable")]
     HostUnreachable,
-    /// The network containing the remote host is not reachable.
+    /// The network for the host is not reachable.
     #[error("network unreachable")]
     NetworkUnreachable,
-    /// The connection was aborted (terminated) by the remote server.
+    /// The connection was aborted by the remote server.
     #[error("connection aborted")]
     ConnectionAborted,
-    /// The network operation failed because it was not connected yet.
+    /// The network operation failed because it is not connected yet.
     #[error("not connected")]
     NotConnected,
-    /// A socket address could not be bound because the address is already in
-    /// use elsewhere.
+    /// A socket address is already in use elsewhere.
     #[error("address in use")]
     AddrInUse,
     /// A nonexistent interface was requested or the requested address was not
@@ -41,7 +40,7 @@ pub enum IoError {
     /// The operation failed because a pipe was closed.
     #[error("broken pipe")]
     BrokenPipe,
-    /// An entity already exists, often a file.
+    /// An entity already exists.
     #[error("entity already exists")]
     AlreadyExists,
     /// The operation needs to block to complete, but the blocking operation was
@@ -49,35 +48,30 @@ pub enum IoError {
     #[error("operation would block")]
     WouldBlock,
     /// A filesystem object is, unexpectedly, not a directory.
-    ///
-    /// For example, a filesystem path was specified where one of the intermediate directory
-    /// components was, in fact, a plain file.
     #[error("not a directory")]
     NotADirectory,
     /// The filesystem object is, unexpectedly, a directory.
-    ///
-    /// A directory was specified when a non-directory was expected.
     #[error("is a directory")]
     IsADirectory,
-    /// A non-empty directory was specified where an empty directory was expected.
+    /// A non-empty directory was specified when a empty directory was expected.
     #[error("directory not empty")]
     DirectoryNotEmpty,
-    /// The filesystem or storage medium is read-only, but a write operation was attempted.
+    /// The filesystem is read-only when a write operation was attempted.
     #[error("read-only filesystem or storage medium")]
     ReadOnlyFilesystem,
     /// Loop in the filesystem or IO subsystem; often, too many levels of symbolic links.
     ///
     /// There was a loop (or excessively long chain) resolving a filesystem object
     /// or file IO object.
-    ///
-    /// On Unix this is usually the result of a symbolic link loop; or, of exceeding the
-    /// system-specific limit on the depth of symlink traversal.
+    //
+    // On Unix this is usually the result of a symbolic link loop; or, of exceeding the
+    // system-specific limit on the depth of symlink traversal.
     #[error("filesystem loop or indirection limit (e.g. symlink loop)")]
     FilesystemLoop,
     /// Stale network file handle.
-    ///
-    /// With some network filesystems, notably NFS, an open file (or directory) can be invalidated
-    /// by problems with the network or server.
+    //
+    // With some network filesystems, notably NFS, an open file (or directory) can be invalidated
+    // by problems with the network or server.
     #[error("stale network file handle")]
     StaleNetworkFileHandle,
     /// A parameter was incorrect.
@@ -85,64 +79,64 @@ pub enum IoError {
     InvalidInput,
     /// Data not valid for the operation were encountered.
     ///
-    /// Unlike [`InvalidInput`], this typically means that the operation
-    /// parameters were valid, however the error was caused by malformed
-    /// input data.
-    ///
-    /// For example, a function that reads a file into a string will error with
-    /// `InvalidData` if the file's contents are not valid UTF-8.
-    ///
-    /// [`InvalidInput`]: ErrorKind::InvalidInput
+    // Unlike [`InvalidInput`], this typically means that the operation
+    // parameters were valid, however the error was caused by malformed
+    // input data.
+    //
+    // For example, a function that reads a file into a string will error with
+    // `InvalidData` if the file's contents are not valid UTF-8.
+    //
+    // [`InvalidInput`]: ErrorKind::InvalidInput
     #[error("invalid data")]
     InvalidData,
-    /// The I/O operation's timeout expired, causing it to be canceled.
+    /// The I/O operation's timeout expired.
     #[error("timed out")]
     TimedOut,
     /// An error returned when an operation could not be completed because a
     /// call to [`write`] returned [`Ok(0)`].
     ///
-    /// This typically means that an operation could only succeed if it wrote a
-    /// particular number of bytes but only a smaller number of bytes could be
-    /// written.
-    ///
-    /// [`write`]: std::io::Write::write
-    /// [`Ok(0)`]: Ok
+    // This typically means that an operation could only succeed if it wrote a
+    // particular number of bytes but only a smaller number of bytes could be
+    // written.
+    //
+    // [`write`]: std::io::Write::write
+    // [`Ok(0)`]: Ok
     #[error("write zero")]
     WriteZero,
-    /// The underlying storage (typically, a filesystem) is full.
-    ///
-    /// This does not include out of quota errors.
+    /// The underlying storage is full.
+    //
+    // This does not include out of quota errors.
     #[error("no storage space")]
     StorageFull,
     /// Seek on unseekable file.
-    ///
-    /// Seeking was attempted on an open file handle which is not suitable for seeking - for
-    /// example, on Unix, a named pipe opened with `File::open`.
+    //
+    // Seeking was attempted on an open file handle which is not suitable for seeking - for
+    // example, on Unix, a named pipe opened with `File::open`.
     #[error("seek on unseekable file")]
     NotSeekable,
     /// Filesystem quota was exceeded.
     #[error("filesystem quota exceeded")]
     FilesystemQuotaExceeded,
     /// File larger than allowed or supported.
-    ///
-    /// This might arise from a hard limit of the underlying filesystem or file access API, or from
-    /// an administratively imposed resource limitation.  Simple disk full, and out of quota, have
-    /// their own errors.
+    //
+    // This might arise from a hard limit of the underlying filesystem or file access API, or from
+    // an administratively imposed resource limitation.  Simple disk full, and out of quota, have
+    // their own errors.
     #[error("file too large")]
     FileTooLarge,
     /// Resource is busy.
     #[error("resource busy")]
     ResourceBusy,
     /// Executable file is busy.
-    ///
-    /// An attempt was made to write to a file which is also in use as a running program.  (Not all
-    /// operating systems detect this situation.)
+    //
+    // An attempt was made to write to a file which is also in use as a running program.  (Not all
+    // operating systems detect this situation.)
     #[error("executable file busy")]
     ExecutableFileBusy,
     /// Deadlock (avoided).
-    ///
-    /// A file locking operation would result in deadlock.  This situation is typically detected, if
-    /// at all, on a best-effort basis.
+    //
+    // A file locking operation would result in deadlock.  This situation is typically detected, if
+    // at all, on a best-effort basis.
     #[error("deadlock")]
     Deadlock,
     /// Cross-device or cross-filesystem (hard) link or rename.
