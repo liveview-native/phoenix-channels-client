@@ -29,9 +29,9 @@ path = "uniffi-bindgen.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = []
+default = ["native-tls"]
 nightly = []
-native-tls = ["tokio-tungstenite/native-tls"]
+native-tls = ["tokio-tungstenite/native-tls-vendored"]
 
 [dependencies]
 arc-swap = "1.6.0"
@@ -51,6 +51,7 @@ tokio-tungstenite = "0.21.0"
 uniffi = { version = "0.26", features = ["cli", "tokio"] }
 url = "2.5"
 uuid = { version = "1.7.0", features = ["v4"] }
+native-tls = { version = "0.2", features = ["vendored"] }
 
 [dev-dependencies]
 chrono = "0.4.31"
@@ -60,3 +61,10 @@ tokio = { version = "1.35", features = ["full", "tracing", "test-util"] }
 
 [build-dependencies]
 uniffi = { version = "0.26", features = ["build"] }
+
+[patch.crates-io]
+# Work for https://github.com/sfackler/rust-native-tls/pull/285 hasn't been published to crates.io yet.
+native-tls = { git = "https://github.com/sfackler/rust-native-tls", rev = "0b69ce6a3c4bfe973ede44f6862fc13f3f09c773" }
+# work for https://github.com/kornelski/rust-security-framework/pull/190 hasn't been published to crates.io yet.
+security-framework = { git = "https://github.com/kornelski/rust-security-framework/", rev = "54d905027e50ec4f0969824efa8e34581922a1f4" }
+security-framework-sys = { git = "https://github.com/kornelski/rust-security-framework/", rev = "54d905027e50ec4f0969824efa8e34581922a1f4" }

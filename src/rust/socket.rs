@@ -131,6 +131,9 @@ pub enum ConnectError {
     /// [tungstenite::protocol::WebSocket].
     #[error("websocket error: {0}")]
     WebSocket(#[from] Arc<tungstenite::Error>),
+
+    #[error("tls error: {0}")]
+    Tls(#[from] native_tls::Error),
     /// [Socket] shutting down because [Socket::shutdown] was called.
     #[error("socket shutting down")]
     ShuttingDown,
