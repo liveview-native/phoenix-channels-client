@@ -712,12 +712,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lazy_static"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
-
-[[package]]
 name = "libc"
 version = "0.2.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -796,10 +790,8 @@ dependencies = [
 [[package]]
 name = "native-tls"
 version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07226173c32f2926027b63cce4bcd8076c3552846cbe7925f3aaffeac0a3b92e"
+source = "git+https://github.com/sfackler/rust-native-tls?rev=0b69ce6a3c4bfe973ede44f6862fc13f3f09c773#0b69ce6a3c4bfe973ede44f6862fc13f3f09c773"
 dependencies = [
- "lazy_static",
  "libc",
  "log",
  "openssl",
@@ -894,6 +886,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
+name = "openssl-src"
+version = "300.2.2+3.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bbfad0063610ac26ee79f7484739e2b07555a75c42453b89263830b5c8103bc"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "openssl-sys"
 version = "0.9.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -901,6 +902,7 @@ checksum = "c1665caf8ab2dc9aef43d1c0023bd904633a6a05cb30b0ad59bec2ae986e57a7"
 dependencies = [
  "cc",
  "libc",
+ "openssl-src",
  "pkg-config",
  "vcpkg",
 ]
@@ -954,6 +956,7 @@ dependencies = [
  "fxhash",
  "httparse",
  "log",
+ "native-tls",
  "serde",
  "serde_json",
  "strum_macros",
@@ -1150,8 +1153,7 @@ dependencies = [
 [[package]]
 name = "security-framework"
 version = "2.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05b64fb303737d99b81884b2c63433e9ae28abebe5eb5045dcdd175dc2ecf4de"
+source = "git+https://github.com/kornelski/rust-security-framework/?rev=54d905027e50ec4f0969824efa8e34581922a1f4#54d905027e50ec4f0969824efa8e34581922a1f4"
 dependencies = [
  "bitflags 1.3.2",
  "core-foundation",
@@ -1163,8 +1165,7 @@ dependencies = [
 [[package]]
 name = "security-framework-sys"
 version = "2.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e932934257d3b408ed8f30db49d85ea163bfe74961f017f405b025af298f0c7a"
+source = "git+https://github.com/kornelski/rust-security-framework/?rev=54d905027e50ec4f0969824efa8e34581922a1f4#54d905027e50ec4f0969824efa8e34581922a1f4"
 dependencies = [
  "core-foundation-sys",
  "libc",

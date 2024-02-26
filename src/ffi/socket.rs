@@ -526,6 +526,12 @@ pub enum ConnectError {
         /// When the [Socket] will automatically [Socket::connect] next.
         until: SystemTime,
     },
+    /// These are TLS errors.
+    #[error("tls error: {tls_error}")]
+    Tls {
+        /// This is the error from [native_tls::Error]
+        tls_error: native_tls::Error
+    },
 }
 impl From<Elapsed> for ConnectError {
     fn from(_: Elapsed) -> Self {
@@ -546,6 +552,9 @@ impl From<rust::socket::ConnectError> for ConnectError {
             rust::socket::ConnectError::WaitingToReconnect(until) => Self::WaitingToReconnect {
                 until: instant_to_system_time(until),
             },
+            rust::socket::ConnectError::Tls(tls_error) => Self::Tls {
+                tls_error
+            }
         }
     }
 }

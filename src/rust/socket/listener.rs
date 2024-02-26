@@ -702,9 +702,23 @@ impl Listener {
                 request = request.header("Cookie", cookie);
             }
         }
+        let connector = match url.scheme() {
+            "ws" => {
+                Some(tokio_tungstenite::Connector::Plain)
+            },
+            "wss" => {
+                let tls_con = native_tls::TlsConnector::new().map_err(|e| (ConnectError::from(e), reconnect))?;
+                Some(tokio_tungstenite::Connector::NativeTls(tls_con))
+            },
+            other => {
+                error!("Scheme {other} is not supported! Use either ws or wss");
+                None
+            }
+        };
+
         match time::timeout_at(
             created_at + reconnect.connect_timeout,
-            tokio_tungstenite::connect_async(request.body(()).expect("Failed to build http request")),
+            tokio_tungstenite::connect_async_tls_with_config(request.body(()).expect("Failed to build http request"), None, false, connector)
         )
         .await
         {
