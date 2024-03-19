@@ -50,7 +50,7 @@ tokio = { version = "1.36", features = ["sync", "macros", "time", "tracing"] }
 tokio-tungstenite = "0.21.0"
 uniffi = { version = "0.26", features = ["cli", "tokio"] }
 url = "2.5"
-uuid = { version = "1.7.0", features = ["v4"] }
+uuid = { version = "1.8.0", features = ["v4"] }
 native-tls = { version = "0.2", features = ["vendored"] }
 
 [dev-dependencies]
