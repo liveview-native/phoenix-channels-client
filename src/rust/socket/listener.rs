@@ -702,6 +702,7 @@ impl Listener {
                 request = request.header("Cookie", cookie);
             }
         }
+        #[cfg(feature = "native-tls")]
         let connector = match url.scheme() {
             "ws" => {
                 Some(tokio_tungstenite::Connector::Plain)
@@ -715,10 +716,15 @@ impl Listener {
                 None
             }
         };
+        #[cfg(feature = "native-tls")]
+        let connector = tokio_tungstenite::connect_async_tls_with_config(request.body(()).expect("Failed to build http request"), None, false, connector);
+        #[cfg(not(feature = "native-tls"))]
+        let connector = tokio_tungstenite::connect_async_with_config(request.body(()).expect("Failed to build http request"), None, false);
+
 
         match time::timeout_at(
             created_at + reconnect.connect_timeout,
-            tokio_tungstenite::connect_async_tls_with_config(request.body(()).expect("Failed to build http request"), None, false, connector)
+            connector
         )
         .await
         {

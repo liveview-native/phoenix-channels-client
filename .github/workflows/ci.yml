@@ -1,0 +1,290 @@
+name: CI
+
+on: pull_request
+
+env:
+  TOOLCHAIN: nightly
+  CARGO_TERM_COLOR: always
+  ANDROID_API: 33
+  ANDROID_NDK_VERSION: 25.2.9519653
+  ANDROID_SYSTEM_IMAGE_PACKAGE: system-images;android-33;google_apis_playstore;arm64-v8a
+  OPENSSL_VERSION: 1.1.1s
+
+jobs:
+  integration_tests:
+    runs-on: macos-14
+    strategy:
+      matrix:
+        rust-target: ["aarch64-apple-ios-sim"]
+        apple-target-os: [ "iOS" ]
+        include:
+          - rust-target: "aarch64-apple-tvos-sim"
+            apple-target-os: "tvOS"
+          - rust-target: "aarch64-apple-watchos-sim"
+            apple-target-os: "watchOS"
+          - rust-target: "aarch64-apple-darwin"
+            apple-target-os: "macOS"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          components: rust-src
+
+      - name: Set up Elixir
+        run: brew install elixir
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache deps
+        id: cache-deps
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-elixir-deps
+        with:
+          path: tests/support/test_server/deps
+          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ env.cache-name }}-
+      - name: Cache compiled build
+        id: cache-build
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-compiled-build
+        with:
+          path: tests/support/test_server/_build
+          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ env.cache-name }}-
+            ${{ runner.os }}-mix-
+
+      - name: Install hex, rebar3
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+      - name: Install test server dependencies, compile server, run server in background
+        working-directory: ./tests/support/test_server
+        run: |
+          mix deps.get
+          mix compile
+          mix phx.server &
+
+      - uses: taiki-e/install-action@v2
+        if:  ${{ matrix.apple-target-os != 'macOS' }}
+        with:
+          tool: cargo-dinghy@0.7.1
+      - name: Start Simulator
+        if:  ${{ matrix.apple-target-os != 'macOS' }}
+        uses: futureware-tech/simulator-action@v3
+        with:
+          os: ${{ matrix.apple-target-os }}
+
+      - name: Test phoenix_channel_clients
+        env:
+          DINGHY_LOG: debug
+        if:  ${{ matrix.apple-target-os != 'macOS' }}
+        run: |
+          cargo dinghy all-platforms
+          cargo dinghy all-devices
+          cargo -Zbuild-std test --target ${{ matrix.rust-target }}
+
+      - name: Build phoenix_channel_clients with tls
+        run:
+          cargo build -Zbuild-sd --target ${{ matrix.rust-target }} --features native-tls
+
+      - name: Get JNA jar
+        if:  ${{ matrix.apple-target-os == 'macOS' }}
+        run: wget 'https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar'
+
+      - name: Set up Elixir, kotlin and ktlint
+        if:  ${{ matrix.apple-target-os == 'macOS' }}
+        run: brew install kotlin ktlint
+
+      - name: Test phoenix_channel_clients
+        if:  ${{ matrix.apple-target-os == 'macOS' }}
+        run: cargo test
+        env:
+          # This is required for the kotlin uniffi tests
+          CLASSPATH: "/opt/homebrew/opt/kotlin/libexec/lib/kotlinx-coroutines-core-jvm.jar:./jna-5.14.0.jar"
+
+  uniffi-check:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build static library
+        run: cargo build --lib --release # For some unclear reason, the release build has better errors.
+      - name: Generate swift bindings
+        run: |
+          cargo run --bin uniffi-bindgen -- generate --library ./target/release/libphoenix_channels_client.dylib --out-dir ./binding-swift/ --language swift
+      - name: Generate kotlin bindings
+        run: |
+          cargo run --bin uniffi-bindgen -- generate --library ./target/release/libphoenix_channels_client.dylib --out-dir ./binding-kotlin/ --language kotlin
+
+  docs:
+    # rust cross-compilation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache target
+        id: cache-target
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-target
+        with:
+          path: target
+          key: ${{ github.workflow }}-${{ github.job }}-${{ env.cache-name }}-${{ env.TOOLCHAIN }}-cargo--${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build phoenix_channels_client
+        run: cargo build --all-targets
+      - name: Generate docs for phoenix_channel_clients
+        run: cargo doc
+
+  android_simulator_integration_tests:
+    # rust cross-compilation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust Nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          target: x86_64-linux-android
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-dinghy@0.7.1
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version:  1.15
+          otp-version: 25
+
+      - name: Cache deps
+        id: cache-deps
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-elixir-deps
+        with:
+          path: tests/support/test_server/deps
+          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ env.cache-name }}-
+
+      - name: Cache compiled build
+        id: cache-build
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-compiled-build
+        with:
+          path: tests/support/test_server/_build
+          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ env.cache-name }}-
+            ${{ runner.os }}-mix-
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: 'temurin'
+
+      - name: Install hex, rebar3
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+      - name: Install test server dependencies, compile server, run server in background
+        working-directory: ./tests/support/test_server
+        run: |
+          mix deps.get
+          mix compile
+          mix phx.server &
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: AVD cache
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ env.ANDROID_API }}
+
+      - name: Create AVD and generate snapshot for caching
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.ANDROID_API }}
+          ndk: ${{ env.ANDROID_NDK_VERSION }}
+          force-avd-creation: false
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated AVD snapshot for caching."
+
+      - name: Run tests in android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          RANLIB: "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib"
+        with:
+          api-level: ${{ env.ANDROID_API }}
+          ndk: ${{ env.ANDROID_NDK_VERSION }}
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            cargo dinghy all-platforms
+            cargo dinghy all-devices
+            export RUSTFLAGS="--cfg tokio_unstable"
+            cargo dinghy -p auto-android-x86_64-api${ANDROID_API} test
