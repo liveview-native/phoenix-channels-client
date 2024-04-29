@@ -132,6 +132,7 @@ pub enum ConnectError {
     #[error("websocket error: {0}")]
     WebSocket(#[from] Arc<tungstenite::Error>),
 
+    #[cfg(feature = "native-tls")]
     #[error("tls error: {0}")]
     Tls(#[from] native_tls::Error),
     /// [Socket] shutting down because [Socket::shutdown] was called.
