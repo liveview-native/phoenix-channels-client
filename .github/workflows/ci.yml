@@ -11,7 +11,7 @@ env:
   OPENSSL_VERSION: 1.1.1s
 
 jobs:
-  integration_tests:
+  apple_integration_tests:
     runs-on: macos-14
     strategy:
       matrix:
@@ -139,7 +139,7 @@ jobs:
         run: |
           cargo run --bin uniffi-bindgen -- generate --library ./target/release/libphoenix_channels_client.dylib --out-dir ./binding-kotlin/ --language kotlin
 
-  docs:
+  integration_tests:
     # rust cross-compilation
     runs-on: ubuntu-latest
 
