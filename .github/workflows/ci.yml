@@ -97,7 +97,7 @@ jobs:
 
       - name: Build phoenix_channel_clients with tls
         run:
-          cargo build -Zbuild-sd --target ${{ matrix.rust-target }} --features native-tls
+          cargo build -Zbuild-std --target ${{ matrix.rust-target }} --features native-tls
 
       - name: Get JNA jar
         if:  ${{ matrix.apple-target-os == 'macOS' }}
