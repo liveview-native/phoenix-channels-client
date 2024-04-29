@@ -148,23 +148,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.TOOLCHAIN }}
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache target
-        id: cache-target
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-target
-        with:
-          path: target
-          key: ${{ github.workflow }}-${{ github.job }}-${{ env.cache-name }}-${{ env.TOOLCHAIN }}-cargo--${{ hashFiles('**/Cargo.lock') }}
-
       - name: Build phoenix_channels_client
         run: cargo build --all-targets
       - name: Generate docs for phoenix_channel_clients
