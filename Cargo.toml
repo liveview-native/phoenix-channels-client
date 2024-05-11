@@ -65,7 +65,7 @@ native-tls = { version = "0.2", features = ["vendored"], optional = true}
 chrono = "0.4.31"
 env_logger = "0.10"
 uniffi = { version = "0.27", features = ["bindgen-tests", "tokio"]}
-tokio = { version = "1.37", features = ["test-util"] }
+tokio = { version = "1.37", features = ["full", "test-util"] }
 
 [patch.crates-io]
 # Work for https://github.com/sfackler/rust-native-tls/pull/285 hasn't been published to crates.io yet.
