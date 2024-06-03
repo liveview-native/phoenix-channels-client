@@ -19,6 +19,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.TOOLCHAIN }}
+          components: rustfmt
 
       - name: Cargo fmt
         run: cargo fmt --all -- --check
