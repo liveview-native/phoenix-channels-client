@@ -54,8 +54,8 @@ log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
-tokio = { version = "1.37", features = ["sync", "macros", "time" ] }
-tokio-tungstenite = "0.21.0"
+tokio = { version = "1.38", features = ["sync", "macros", "time" ] }
+tokio-tungstenite = "0.23.0"
 uniffi = { version = "0.27", features = ["tokio"] }
 url = "2.5"
 uuid = { version = "1.8.0", features = ["v4"] }
@@ -65,11 +65,18 @@ native-tls = { version = "0.2", features = ["vendored"], optional = true}
 chrono = "0.4.31"
 env_logger = "0.10"
 uniffi = { version = "0.27", features = ["bindgen-tests", "tokio"]}
-tokio = { version = "1.37", features = ["full", "test-util"] }
+tokio = { version = "1.38", features = ["full", "test-util"] }
 
 [patch.crates-io]
-# Work for https://github.com/sfackler/rust-native-tls/pull/285 hasn't been published to crates.io yet.
-native-tls = { git = "https://github.com/sfackler/rust-native-tls", rev = "0b69ce6a3c4bfe973ede44f6862fc13f3f09c773" }
-# work for https://github.com/kornelski/rust-security-framework/pull/190 hasn't been published to crates.io yet.
-security-framework = { git = "https://github.com/kornelski/rust-security-framework/", rev = "54d905027e50ec4f0969824efa8e34581922a1f4" }
-security-framework-sys = { git = "https://github.com/kornelski/rust-security-framework/", rev = "54d905027e50ec4f0969824efa8e34581922a1f4" }
+# https://github.com/kornelski/rust-security-framework/pull/201
+security-framework =     { git = "https://github.com/kornelski/rust-security-framework.git", rev = "ea683f291bb8dff51d3239e556c3236e09274c16" }
+security-framework-sys = { git = "https://github.com/kornelski/rust-security-framework.git", rev = "ea683f291bb8dff51d3239e556c3236e09274c16" }
+
+# https://github.com/servo/core-foundation-rs/pull/679
+core-foundation-sys = { git = "https://github.com/servo/core-foundation-rs", rev = "fb8fd65eef1b2ef247055e944cf258d53f2a517a" }
+
+# https://github.com/tokio-rs/mio/pull/1773 and backport PR.
+mio = { git = "https://github.com/simlay/mio.git", rev = "7b8b2e605ad64bcabf1f0af4366aa404a8b6bbdc" }
+
+# https://github.com/rust-lang/socket2/pull/503
+socket2 = { git = "https://github.com/QuentinPerez/socket2.git", rev = "ca3a93088857b40c27e98d1690f242a7ba8da4dc" }

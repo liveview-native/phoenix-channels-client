@@ -1,5 +1,6 @@
 use tokio_tungstenite::tungstenite::error::{
     CapacityError as TungsteniteCapacityError, ProtocolError as TungsteniteProtocolError,
+    SubProtocolError as TungsteniteSubProtocolError,
 };
 use tokio_tungstenite::tungstenite::Error as TungsteniteError;
 
@@ -241,6 +242,19 @@ pub enum ProtocolError {
     /// The payload for the closing frame is invalid.
     #[error("Invalid close sequence")]
     InvalidCloseSequence,
+
+    /// The server sent a subprotocol to a client handshake request but none was requested
+    #[error("Server sent a subprotocol but none was requested")]
+    ServerSentSubProtocolNoneRequested,
+
+    /// The server sent an invalid subprotocol to a client handhshake request
+    #[error("Server sent an invalid subprotocol")]
+    InvalidSubProtocol,
+
+    /// The server sent no subprotocol to a client handshake request that requested one or more
+    /// subprotocols
+    #[error("Server sent no subprotocol")]
+    NoSubProtocol,
 }
 impl From<&TungsteniteProtocolError> for ProtocolError {
     fn from(rust_protocol_error: &TungsteniteProtocolError) -> Self {
@@ -297,6 +311,15 @@ impl From<&TungsteniteProtocolError> for ProtocolError {
                 Self::InvalidOpcode { opcode: *opcode }
             }
             TungsteniteProtocolError::InvalidCloseSequence => Self::InvalidCloseSequence,
+            TungsteniteProtocolError::SecWebSocketSubProtocolError(
+                TungsteniteSubProtocolError::ServerSentSubProtocolNoneRequested,
+            ) => Self::ServerSentSubProtocolNoneRequested,
+            TungsteniteProtocolError::SecWebSocketSubProtocolError(
+                TungsteniteSubProtocolError::InvalidSubProtocol,
+            ) => Self::InvalidSubProtocol,
+            TungsteniteProtocolError::SecWebSocketSubProtocolError(
+                TungsteniteSubProtocolError::NoSubProtocol,
+            ) => Self::NoSubProtocol,
         }
     }
 }
