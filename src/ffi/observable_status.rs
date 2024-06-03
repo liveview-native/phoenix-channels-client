@@ -12,7 +12,7 @@ pub enum StatusesError {
     #[error("Missed {missed_status_count} Statuses; jumping to next Status")]
     MissedStatuses {
         /// Number of missed statuses.
-        missed_status_count: u64
+        missed_status_count: u64,
     },
     /// Failed to join a Channel (due to rejection).
     #[error("Join Error {join_error}")]
@@ -26,6 +26,6 @@ pub enum StatusesError {
     WebSocket {
         /// The websocket error
         #[from]
-        websocket_error: WebSocketError
+        websocket_error: WebSocketError,
     },
 }

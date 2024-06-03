@@ -222,7 +222,7 @@ use crate::ffi::topic::Topic;
 use crate::ffi::web_socket::error::WebSocketError;
 use crate::ffi::{instant_to_system_time, web_socket};
 use crate::rust;
-use crate::rust::channel::listener::{ObservableStatus, SendCommand, StateCommand, JoinError};
+use crate::rust::channel::listener::{JoinError, ObservableStatus, SendCommand, StateCommand};
 use crate::rust::channel::Call;
 
 pub mod statuses;
@@ -299,9 +299,9 @@ pub struct Channel {
 impl Channel {
     /// Join [Channel::topic] with [Channel::payload] within `timeout`.
     pub async fn join(&self, timeout: Duration) -> Result<Payload, ChannelJoinError> {
-        let (joined_tx, joined_rx) : (
+        let (joined_tx, joined_rx): (
             oneshot::Sender<Result<crate::rust::message::Payload, JoinError>>,
-            oneshot::Receiver<Result<crate::rust::message::Payload, JoinError>>
+            oneshot::Receiver<Result<crate::rust::message::Payload, JoinError>>,
         ) = oneshot::channel();
 
         match self
@@ -356,7 +356,8 @@ impl Channel {
     pub async fn cast(&self, event: Event, payload: Payload) -> Result<(), CastError> {
         trace!(
             "sending event {:?} with payload {:?}, replies ignored",
-            &event, &payload
+            &event,
+            &payload
         );
 
         match self
@@ -386,7 +387,9 @@ impl Channel {
     ) -> Result<Payload, CallError> {
         trace!(
             "sending event {:?} with timeout {:?} and payload {:?}",
-            &event, &timeout, &payload
+            &event,
+            &timeout,
+            &payload
         );
 
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -752,7 +755,7 @@ pub enum LeaveError {
     #[error("URL error: {url_error}")]
     Url {
         /// The url error itself.
-        url_error: String
+        url_error: String,
     },
     /// There was an HTTP error when leaving the cheannel.
     #[error("HTTP error: {}", response.status_code)]
@@ -764,7 +767,7 @@ pub enum LeaveError {
     #[error("HTTP format error: {error}")]
     HttpFormat {
         /// The http error.
-        error: crate::ffi::http::HttpError
+        error: crate::ffi::http::HttpError,
     },
 }
 impl From<ChannelShutdownError> for LeaveError {

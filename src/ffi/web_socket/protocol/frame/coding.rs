@@ -144,10 +144,18 @@ pub enum TungsteniteCloseCode {
     /// when a user has performed an action.
     Again,
     Tls,
-    Reserved { code: u16 },
-    Iana { code: u16 },
-    Library { code: u16 },
-    Bad { code: u16 },
+    Reserved {
+        code: u16,
+    },
+    Iana {
+        code: u16,
+    },
+    Library {
+        code: u16,
+    },
+    Bad {
+        code: u16,
+    },
 }
 impl From<&tungstenite_coding::CloseCode> for TungsteniteCloseCode {
     fn from(rust_close_code: &tungstenite_coding::CloseCode) -> Self {

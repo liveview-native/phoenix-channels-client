@@ -15,10 +15,12 @@ pub struct ChannelStatuses(
 #[uniffi::export(async_runtime = "tokio")]
 impl ChannelStatuses {
     /// Wait for next [ChannelStatus] when the [Channel::status](super::Channel::status) changes.
-    pub async fn status(
-        &self,
-    ) -> Result<ChannelStatus, StatusesError> {
-        let status = self.0.status().await?.map_err(ChannelStatusJoinError::from)?;
+    pub async fn status(&self) -> Result<ChannelStatus, StatusesError> {
+        let status = self
+            .0
+            .status()
+            .await?
+            .map_err(ChannelStatusJoinError::from)?;
         Ok(status.into())
     }
 }
