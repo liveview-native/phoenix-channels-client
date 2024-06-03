@@ -490,7 +490,7 @@ pub enum SpawnError {
     #[error("Unsupported scheme in url ({url}). Supported schemes are ws and wss.")]
     UnsupportedScheme {
         /// The url for this unsupported scheme.
-        url: Url
+        url: Url,
     },
 }
 
@@ -531,7 +531,7 @@ pub enum ConnectError {
     #[error("tls error: {tls_error}")]
     Tls {
         /// This is the error from [native_tls::Error]
-        tls_error: native_tls::Error
+        tls_error: native_tls::Error,
     },
 }
 impl From<Elapsed> for ConnectError {
@@ -554,9 +554,7 @@ impl From<rust::socket::ConnectError> for ConnectError {
                 until: instant_to_system_time(until),
             },
             #[cfg(feature = "native-tls")]
-            rust::socket::ConnectError::Tls(tls_error) => Self::Tls {
-                tls_error
-            }
+            rust::socket::ConnectError::Tls(tls_error) => Self::Tls { tls_error },
         }
     }
 }
@@ -575,7 +573,7 @@ pub enum SocketChannelError {
     /// The shutdown error for this SocketChannelError
     Shutdown {
         /// The shutdown error for this shutdown
-        shutdown_error: SocketShutdownError
+        shutdown_error: SocketShutdownError,
     },
 }
 impl From<rust::socket::ShutdownError> for SocketChannelError {

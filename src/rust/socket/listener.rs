@@ -681,10 +681,7 @@ impl Listener {
     ) -> Result<State, (ConnectError, Reconnect)> {
         let url = self.url.clone();
         let host = url.host().expect("Failed to get host from url");
-        use tokio_tungstenite::tungstenite::handshake::client::{
-            Request,
-            generate_key,
-        };
+        use tokio_tungstenite::tungstenite::handshake::client::{generate_key, Request};
 
         // This comes from
         // https://github.com/snapview/tungstenite-rs/blob/2ee05d10803d95ad48b3ad03d9d9a03164060e76/src/client.rs#L219-L242
@@ -704,30 +701,32 @@ impl Listener {
         }
         #[cfg(feature = "native-tls")]
         let connector = match url.scheme() {
-            "ws" => {
-                Some(tokio_tungstenite::Connector::Plain)
-            },
+            "ws" => Some(tokio_tungstenite::Connector::Plain),
             "wss" => {
-                let tls_con = native_tls::TlsConnector::new().map_err(|e| (ConnectError::from(e), reconnect))?;
+                let tls_con = native_tls::TlsConnector::new()
+                    .map_err(|e| (ConnectError::from(e), reconnect))?;
                 Some(tokio_tungstenite::Connector::NativeTls(tls_con))
-            },
+            }
             other => {
                 error!("Scheme {other} is not supported! Use either ws or wss");
                 None
             }
         };
         #[cfg(feature = "native-tls")]
-        let connector = tokio_tungstenite::connect_async_tls_with_config(request.body(()).expect("Failed to build http request"), None, false, connector);
+        let connector = tokio_tungstenite::connect_async_tls_with_config(
+            request.body(()).expect("Failed to build http request"),
+            None,
+            false,
+            connector,
+        );
         #[cfg(not(feature = "native-tls"))]
-        let connector = tokio_tungstenite::connect_async_with_config(request.body(()).expect("Failed to build http request"), None, false);
+        let connector = tokio_tungstenite::connect_async_with_config(
+            request.body(()).expect("Failed to build http request"),
+            None,
+            false,
+        );
 
-
-        match time::timeout_at(
-            created_at + reconnect.connect_timeout,
-            connector
-        )
-        .await
-        {
+        match time::timeout_at(created_at + reconnect.connect_timeout, connector).await {
             Ok(connect_result) => match connect_result {
                 Ok((socket, _response)) => {
                     let duration = Duration::from_secs(30);

@@ -236,12 +236,7 @@ impl Listener {
 
                 Ok(state)
             }
-            State::Joined (
-                Joined {
-                    ref payload,
-                    ..
-                })
-            => {
+            State::Joined(Joined { ref payload, .. }) => {
                 channel_joined_tx.send(Ok(payload.clone())).ok();
 
                 Ok(state)
@@ -311,18 +306,15 @@ impl Listener {
                 broadcast: broadcast_rx,
                 left: left_rx,
                 payload,
-            }) => (
-                Ok(payload.clone()),
-                {
-                    State::Joined(Joined {
-                        payload,
-                        push_rx,
-                        broadcast_rx,
-                        left_rx,
-                        join_timeout: rejoin.join_timeout,
-                    })
-                },
-            ),
+            }) => (Ok(payload.clone()), {
+                State::Joined(Joined {
+                    payload,
+                    push_rx,
+                    broadcast_rx,
+                    left_rx,
+                    join_timeout: rejoin.join_timeout,
+                })
+            }),
             Err(socket_join_error) => match socket_join_error {
                 socket::JoinError::Shutdown(shutdown_error) => (
                     Err(JoinError::SocketShutdown(Arc::new(shutdown_error))),
@@ -709,7 +701,10 @@ impl State {
                     State::WaitingForSocketToConnect { rejoin: None }
                 }
                 Connectivity::Disconnected(Disconnected::Shutdown) => {
-                    Self::send_join_playload_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
+                    Self::send_join_playload_to_channel_txs(
+                        channel_joined_txs,
+                        Err(JoinError::ShuttingDown),
+                    );
 
                     State::ShuttingDown
                 }
@@ -770,7 +765,10 @@ impl State {
             State::Joining(Joining {
                 channel_joined_txs, ..
             }) => {
-                Self::send_join_playload_to_channel_txs(channel_joined_txs, Err(JoinError::ShuttingDown));
+                Self::send_join_playload_to_channel_txs(
+                    channel_joined_txs,
+                    Err(JoinError::ShuttingDown),
+                );
             }
             State::Leaving(Leaving {
                 channel_left_txs, ..

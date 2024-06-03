@@ -17,8 +17,8 @@ use uuid::Uuid;
 // the foreign bindings
 use phoenix_channels_client::{
     CallError, ChannelJoinError, ChannelStatus, ChannelStatusJoinError, ChannelStatuses,
-    ConnectError, PhoenixError, Event, EventPayload, IoError, Payload, Socket, SocketStatus, Topic,
-    WebSocketError, JSON, StatusesError,
+    ConnectError, Event, EventPayload, IoError, Payload, PhoenixError, Socket, SocketStatus,
+    StatusesError, Topic, WebSocketError, JSON,
 };
 
 #[cfg(not(feature = "nightly"))]
@@ -204,23 +204,17 @@ async fn channel_statuses() -> Result<(), PhoenixError> {
 
     socket.connect(CONNECT_TIMEOUT).await?;
     assert_matches!(
-        timeout(CONNECT_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(CONNECT_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::WaitingToJoin)
     );
 
     channel.join(JOIN_TIMEOUT).await?;
     assert_matches!(
-        timeout(JOIN_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(JOIN_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::Joining)
     );
     assert_matches!(
-        timeout(JOIN_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(JOIN_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::Joined)
     );
 
@@ -248,43 +242,31 @@ async fn channel_statuses() -> Result<(), PhoenixError> {
         Ok(ChannelStatus::WaitingToRejoin { .. })
     );
     assert_matches!(
-        timeout(JOIN_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(JOIN_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::Joining)
     );
     assert_matches!(
-        timeout(JOIN_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(JOIN_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::Joined)
     );
 
     channel.leave().await?;
     assert_matches!(
-        timeout(JOIN_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(JOIN_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::Leaving)
     );
     assert_matches!(
-        timeout(JOIN_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(JOIN_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::Left)
     );
 
     channel.shutdown().await?;
     assert_matches!(
-        timeout(CALL_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(CALL_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::ShuttingDown)
     );
     assert_matches!(
-        timeout(CALL_TIMEOUT, statuses.status())
-            .await
-            .unwrap(),
+        timeout(CALL_TIMEOUT, statuses.status()).await.unwrap(),
         Ok(ChannelStatus::ShutDown)
     );
 
@@ -502,7 +484,10 @@ async fn phoenix_channels_join_binary_payload_test() -> Result<(), PhoenixError>
     phoenix_channels_join_payload_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_join_payload_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
+async fn phoenix_channels_join_payload_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -540,7 +525,10 @@ async fn phoenix_channels_join_binary_error_test() -> Result<(), PhoenixError> {
     phoenix_channels_join_error_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_join_error_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
+async fn phoenix_channels_join_error_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -577,7 +565,10 @@ async fn phoenix_channels_binary_broadcast_test() -> Result<(), PhoenixError> {
     phoenix_channels_broadcast_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
+async fn phoenix_channels_broadcast_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -634,8 +625,8 @@ async fn phoenix_channels_broadcast_test(subtopic: &str, payload: Payload) -> Re
 }
 
 #[tokio::test]
-async fn phoenix_channels_call_with_json_payload_reply_ok_without_payload_test() -> Result<(), PhoenixError>
-{
+async fn phoenix_channels_call_with_json_payload_reply_ok_without_payload_test(
+) -> Result<(), PhoenixError> {
     phoenix_channels_call_reply_ok_without_payload_test("json", json_payload()).await
 }
 
@@ -834,7 +825,10 @@ async fn phoenix_channels_call_with_binary_payload_raise_test() -> Result<(), Ph
     phoenix_channels_call_raise_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_call_raise_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
+async fn phoenix_channels_call_raise_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -874,7 +868,10 @@ async fn phoenix_channels_cast_error_binary_test() -> Result<(), PhoenixError> {
     phoenix_channels_cast_error_test("binary", binary_payload()).await
 }
 
-async fn phoenix_channels_cast_error_test(subtopic: &str, payload: Payload) -> Result<(), PhoenixError> {
+async fn phoenix_channels_cast_error_test(
+    subtopic: &str,
+    payload: Payload,
+) -> Result<(), PhoenixError> {
     let _ = env_logger::builder()
         .parse_default_env()
         .filter_level(log::LevelFilter::Debug)
@@ -966,10 +963,7 @@ async fn assert_waiting_to_rejoin(channel_statuses: &ChannelStatuses) {
 }
 
 async fn assert_joining(statuses: &ChannelStatuses) {
-    match timeout(CALL_TIMEOUT, statuses.status())
-        .await
-        .unwrap()
-    {
+    match timeout(CALL_TIMEOUT, statuses.status()).await.unwrap() {
         Ok(status) => match status {
             ChannelStatus::Joining => (),
             other => panic!("Status other than joining: {:?}", other),
@@ -984,7 +978,9 @@ async fn assert_unauthorized(channel_statuses: &ChannelStatuses) {
         .unwrap()
     {
         Ok(status) => panic!("Got status instead of join rejection: {:?}", status),
-        Err(StatusesError::ChannelStatusJoin{ join_error: ChannelStatusJoinError::Rejected { response }}) => match response {
+        Err(StatusesError::ChannelStatusJoin {
+            join_error: ChannelStatusJoinError::Rejected { response },
+        }) => match response {
             Payload::JSONPayload { .. } => assert_eq!(
                 response,
                 Payload::json_from_serialized(json!({"reason": "unauthorized"}).to_string())
@@ -992,7 +988,7 @@ async fn assert_unauthorized(channel_statuses: &ChannelStatuses) {
             ),
             Payload::Binary { bytes } => panic!("Unexpected binary payload: {:?}", bytes),
         },
-        Err(_) => unimplemented!()
+        Err(_) => unimplemented!(),
     }
 }
 

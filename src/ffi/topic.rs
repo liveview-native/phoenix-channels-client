@@ -16,8 +16,6 @@ impl Topic {
     }
 }
 
-
-
 impl Debug for Topic {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {

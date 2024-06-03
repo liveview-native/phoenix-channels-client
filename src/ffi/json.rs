@@ -121,17 +121,17 @@ pub enum Number {
     /// Positive number
     PosInt {
         /// Positive number
-        pos: u64
+        pos: u64,
     },
     /// Negative number
     NegInt {
         /// Negative number
-        neg: i64
+        neg: i64,
     },
     /// Float
     Float {
         /// Float
-        float: f64
+        float: f64,
     },
 }
 // Implementing Eq is fine since any float values are always finite.
