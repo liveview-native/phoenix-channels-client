@@ -11,6 +11,18 @@ env:
   OPENSSL_VERSION: 1.1.1s
 
 jobs:
+  fmt:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
   apple_integration_tests:
     runs-on: macos-14
     strategy:
