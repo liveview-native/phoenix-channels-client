@@ -63,7 +63,7 @@ native-tls = { version = "0.2", features = ["vendored"], optional = true}
 
 [dev-dependencies]
 chrono = "0.4.31"
-env_logger = "0.10"
+env_logger = "0.11"
 uniffi = { version = "0.27", features = ["bindgen-tests", "tokio"]}
 tokio = { version = "1.38", features = ["full", "test-util"] }
 
