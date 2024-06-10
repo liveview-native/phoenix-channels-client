@@ -649,9 +649,9 @@ dependencies = [
 
 [[package]]
 name = "httparse"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d897f394bad6a705d5f4104762e116a75639e470d80901eed05a860a95cb1904"
+checksum = "6feda4ab8376c63216ba34f883b3ebdc1b610dcb47b7bf4f4b5871323d996040"
 
 [[package]]
 name = "humantime"
