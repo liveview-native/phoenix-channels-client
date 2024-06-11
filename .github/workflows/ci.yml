@@ -46,6 +46,7 @@ jobs:
         with:
           toolchain: ${{ env.TOOLCHAIN }}
           components: rust-src
+          targets: aarch64-apple-ios-sim
 
       - name: Set up Elixir
         run: brew install elixir
@@ -94,6 +95,7 @@ jobs:
         with:
           tool: cargo-dinghy@0.7.1
       - name: Start Simulator
+        if:  ${{ matrix.apple-target-os != 'macOS' }}
         uses: futureware-tech/simulator-action@v3
         with:
           os: ${{ matrix.apple-target-os }}
@@ -103,7 +105,7 @@ jobs:
         run: cargo -Zbuild-std test --target ${{ matrix.rust-target }} --no-run
 
       - name: Build tests for ${{ matrix.rust-target }}
-        if: ${{ matrix.apple-target-os == 'iOS' }}
+        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
         run: cargo test --target ${{ matrix.rust-target }} --no-run
 
       - name: Dinghy devices and platforms for ${{ matrix.rust-target }}
@@ -117,7 +119,7 @@ jobs:
         env:
           DINGHY_LOG: debug
         timeout-minutes: 30
-        if: ${{ matrix.apple-target-os != 'iOS' }}
+        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
         run: |
           cargo -Zbuild-std test --target ${{ matrix.rust-target }}
 
@@ -130,21 +132,24 @@ jobs:
           cargo test --target ${{ matrix.rust-target }}
 
       - name: Build phoenix_channel_clients with tls
-        if: ${{ matrix.apple-target-os != 'iOS' }}
+        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
         run:
           cargo build -Zbuild-std --target ${{ matrix.rust-target }} --features native-tls
 
       - name: Get JNA jar
+        if: ${{ matrix.apple-target-os == 'macOS' }}
         run: wget 'https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar'
 
       - name: Set up Elixir, kotlin and ktlint
+        if: ${{ matrix.apple-target-os == 'macOS' }}
         run: brew install kotlin ktlint
 
       - name: Test phoenix_channel_clients
-        run: cargo test
         env:
           # This is required for the kotlin uniffi tests
           CLASSPATH: "/opt/homebrew/opt/kotlin/libexec/lib/kotlinx-coroutines-core-jvm.jar:./jna-5.14.0.jar"
+        if: ${{ matrix.apple-target-os == 'macOS' }}
+        run: cargo test
 
   uniffi-check:
     runs-on: macos-14
