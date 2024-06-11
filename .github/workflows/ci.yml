@@ -101,11 +101,11 @@ jobs:
           os: ${{ matrix.apple-target-os }}
 
       - name: Build tests for ${{ matrix.rust-target }}
-        if: ${{ matrix.apple-target-os != 'iOS' }}
+        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
         run: cargo -Zbuild-std test --target ${{ matrix.rust-target }} --no-run
 
       - name: Build tests for ${{ matrix.rust-target }}
-        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
+        if: ${{ matrix.apple-target-os != 'iOS' }}
         run: cargo test --target ${{ matrix.rust-target }} --no-run
 
       - name: Dinghy devices and platforms for ${{ matrix.rust-target }}
