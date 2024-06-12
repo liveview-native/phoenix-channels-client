@@ -34,6 +34,7 @@ pub(crate) struct Listener {
     join_reference: JoinReference,
 }
 impl Listener {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn(
         socket: Arc<Socket>,
         socket_connectivity_rx: broadcast::Receiver<Connectivity>,
@@ -62,6 +63,7 @@ impl Listener {
         tokio::spawn(listener.listen())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn init(
         socket: Arc<Socket>,
         socket_connectivity_rx: broadcast::Receiver<Connectivity>,
@@ -85,7 +87,7 @@ impl Listener {
             event_payload_tx,
             state_command_rx,
             send_command_rx,
-            join_reference: JoinReference::new(),
+            join_reference: JoinReference::default(),
         }
     }
 
@@ -365,7 +367,7 @@ impl Listener {
                     ..
                 }) = state
                 {
-                    Some(channel_left_txs.drain(..).collect())
+                    Some(std::mem::take(channel_left_txs))
                 } else {
                     None
                 };
@@ -858,78 +860,51 @@ impl Status {
     /// [super::Channel] is waiting for the [Socket] to [Socket::connect] or automatically
     /// reconnect.
     pub const fn is_waiting_for_socket_to_connect(&self) -> bool {
-        match self {
-            Status::WaitingForSocketToConnect => true,
-            _ => false,
-        }
+        matches!(self, Status::WaitingForSocketToConnect)
     }
 
     /// [Socket::status] is [crate::socket::Status::Connected] and [super::Channel] is waiting for
     /// [super::Channel::join] to be called.
     pub const fn is_waiting_to_join(&self) -> bool {
-        match self {
-            Status::WaitingToJoin => true,
-            _ => false,
-        }
+        matches!(self, Status::WaitingToJoin)
     }
 
     /// [super::Channel::join] was called and awaiting response from server.
     pub const fn is_joining(&self) -> bool {
-        match self {
-            Status::Joining => true,
-            _ => false,
-        }
+        matches!(self, Status::Joining)
     }
 
     /// [super::Channel::join] was called previously, but the [Socket] was disconnected and
     /// reconnected.
     pub const fn is_waiting_to_rejoin(&self) -> bool {
-        match self {
-            Status::WaitingToRejoin(_) => true,
-            _ => false,
-        }
+        matches!(self, Status::WaitingToRejoin(_))
     }
 
     /// [super::Channel::join] was called and the server responded that the [super::Channel::topic]
     /// was joined using [super::Channel::payload].
     pub const fn is_joined(&self) -> bool {
-        match self {
-            Status::Joined => true,
-            _ => false,
-        }
+        matches!(self, Status::Joined)
     }
 
     /// [super::Channel::leave] was called and awaiting response from server.
     pub const fn is_leaving(&self) -> bool {
-        match self {
-            Status::Leaving => true,
-            _ => false,
-        }
+        matches!(self, Status::Leaving)
     }
 
     /// [super::Channel::leave] was called and the server responded that the [super::Channel::topic]
     /// was left.
     pub const fn is_left(&self) -> bool {
-        match self {
-            Status::Left => true,
-            _ => false,
-        }
+        matches!(self, Status::Left)
     }
 
     /// [super::Channel::shutdown] was called, but the async task hasn't exited yet.
     pub const fn is_shutting_down(&self) -> bool {
-        match self {
-            Status::ShuttingDown => true,
-            _ => false,
-        }
+        matches!(self, Status::ShuttingDown)
     }
 
     /// The async task has exited.
     pub const fn is_shut_down(&self) -> bool {
-        match self {
-            Status::ShutDown => true,
-            _ => false,
-        }
+        matches!(self, Status::ShutDown)
     }
 }
 

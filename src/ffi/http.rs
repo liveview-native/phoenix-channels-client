@@ -36,9 +36,9 @@ impl From<&TungsteniteError> for HttpError {
     fn from(rust_error: &TungsteniteError) -> Self {
         let rust_error_ref = rust_error.get_ref();
 
-        if let Some(_) = rust_error_ref.downcast_ref::<InvalidStatusCode>() {
+        if rust_error_ref.downcast_ref::<InvalidStatusCode>().is_some() {
             Self::StatusCode
-        } else if let Some(_) = rust_error_ref.downcast_ref::<InvalidMethod>() {
+        } else if rust_error_ref.downcast_ref::<InvalidMethod>().is_some() {
             Self::Method
         } else if let Some(invalid_uri) = rust_error_ref.downcast_ref::<TungsteniteInvalidUri>() {
             Self::Uri {
@@ -50,9 +50,12 @@ impl From<&TungsteniteError> for HttpError {
             Self::UriParts {
                 invalid_uri: invalid_uri_parts.to_string(),
             }
-        } else if let Some(_) = rust_error_ref.downcast_ref::<InvalidHeaderName>() {
+        } else if rust_error_ref.downcast_ref::<InvalidHeaderName>().is_some() {
             Self::HeaderName
-        } else if let Some(_) = rust_error_ref.downcast_ref::<InvalidHeaderValue>() {
+        } else if rust_error_ref
+            .downcast_ref::<InvalidHeaderValue>()
+            .is_some()
+        {
             Self::HeaderValue
         } else {
             panic!("Unexpected http::Error: {:?}", rust_error)
@@ -63,7 +66,7 @@ impl From<&TungsteniteError> for HttpError {
 #[derive(Copy, Clone, Debug, thiserror::Error, uniffi::Error)]
 pub enum InvalidUri {
     #[error("invalid uri character")]
-    InvalidUriChar,
+    InvalidChar,
     #[error("invalid scheme")]
     InvalidScheme,
     #[error("invalid authority")]

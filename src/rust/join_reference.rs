@@ -13,6 +13,11 @@ impl JoinReference {
         Self(Reference::new())
     }
 }
+impl Default for JoinReference {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Debug for JoinReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
