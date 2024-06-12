@@ -85,7 +85,7 @@ impl From<serde_json::Value> for JSON {
             serde_json::Value::Object(map) => JSON::Object {
                 object: map
                     .into_iter()
-                    .map(|(key, value)| (key.into(), value.into()))
+                    .map(|(key, value)| (key, value.into()))
                     .collect(),
             },
         }

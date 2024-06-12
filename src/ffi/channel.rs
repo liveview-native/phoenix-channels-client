@@ -299,6 +299,7 @@ pub struct Channel {
 impl Channel {
     /// Join [Channel::topic] with [Channel::payload] within `timeout`.
     pub async fn join(&self, timeout: Duration) -> Result<Payload, ChannelJoinError> {
+        #[allow(clippy::type_complexity)]
         let (joined_tx, joined_rx): (
             oneshot::Sender<Result<crate::rust::message::Payload, JoinError>>,
             oneshot::Receiver<Result<crate::rust::message::Payload, JoinError>>,

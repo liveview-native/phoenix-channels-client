@@ -439,21 +439,17 @@ impl Message {
                             payload: payload.into(),
                             reference,
                         })),
-                        other => {
-                            return Err(MessageDecodingError::Invalid(format!(
-                                "unrecognized control event: {:?}",
-                                &other
-                            )))
-                        }
+                        other => Err(MessageDecodingError::Invalid(format!(
+                            "unrecognized control event: {:?}",
+                            &other
+                        ))),
                     },
                 }
             }
-            other => {
-                return Err(MessageDecodingError::Invalid(format!(
-                    "expected v2 serializer format, an array of fields, got: {:#?}",
-                    &other
-                )))
-            }
+            other => Err(MessageDecodingError::Invalid(format!(
+                "expected v2 serializer format, an array of fields, got: {:#?}",
+                &other
+            ))),
         }
     }
 
@@ -605,10 +601,9 @@ enum BinaryMessageType {
     Reply = 1,
     Broadcast = 2,
 }
-impl Into<u8> for BinaryMessageType {
-    #[inline]
-    fn into(self) -> u8 {
-        self as u8
+impl From<BinaryMessageType> for u8 {
+    fn from(value: BinaryMessageType) -> u8 {
+        value as u8
     }
 }
 impl TryFrom<u8> for BinaryMessageType {
@@ -676,19 +671,13 @@ impl Payload {
     /// * `true` - this is a JSON payload.
     /// * `false` - this is a binary payload.
     pub fn is_value(&self) -> bool {
-        match self {
-            Self::Value(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Value(_))
     }
 
     /// * `true` - this is a binary payload.
     /// * `false` - this a JSON payload.
     pub fn is_binary(&self) -> bool {
-        match self {
-            Self::Binary(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Binary(_))
     }
 
     /// * [Some(&Value)] - the JSON payload.
@@ -775,7 +764,7 @@ pub enum Event {
 impl From<ffi::message::Event> for Event {
     fn from(ffi_event: ffi::message::Event) -> Self {
         match ffi_event {
-            ffi::message::Event::Phoenix { phoenix } => Self::Phoenix(phoenix.into()),
+            ffi::message::Event::Phoenix { phoenix } => Self::Phoenix(phoenix),
             ffi::message::Event::User { user } => Self::User(user),
         }
     }
@@ -792,7 +781,7 @@ impl From<Event> for Value {
 }
 impl From<&Event> for Value {
     fn from(event: &Event) -> Self {
-        Value::String(event.to_string().into())
+        Value::String(event.to_string())
     }
 }
 impl From<PhoenixEvent> for Event {

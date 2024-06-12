@@ -244,7 +244,7 @@ pub enum SocketError {
     },
 }
 
-const PHOENIX_SERIALIZER_VSN: &'static str = "2.0.0";
+const PHOENIX_SERIALIZER_VSN: &str = "2.0.0";
 
 /// A [`Socket`] manages the underlying WebSocket connection used to talk to Phoenix.
 ///

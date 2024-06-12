@@ -513,7 +513,7 @@ impl Listener {
         topic: Arc<Topic>,
         join_reference: JoinReference,
     ) -> JoinKey {
-        time::sleep_until(deadline.into()).await;
+        time::sleep_until(deadline).await;
 
         JoinKey {
             topic,
@@ -730,8 +730,7 @@ impl Listener {
             Ok(connect_result) => match connect_result {
                 Ok((socket, _response)) => {
                     let duration = Duration::from_secs(30);
-                    let mut heartbeat =
-                        time::interval_at((Instant::now() + duration).into(), duration);
+                    let mut heartbeat = time::interval_at(Instant::now() + duration, duration);
                     heartbeat.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
                     self.connectivity_tx.send(Connectivity::Connected).ok();
@@ -833,9 +832,10 @@ impl Debug for State {
 }
 
 /// The status of the [Socket].
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub enum Status {
     /// [Socket::connect] has never been called.
+    #[default]
     NeverConnected,
     /// [Socket::connect] was called and server responded the socket is connected.
     Connected,
@@ -848,11 +848,6 @@ pub enum Status {
     ShuttingDown,
     /// The async task has exited.
     ShutDown,
-}
-impl Default for Status {
-    fn default() -> Self {
-        Status::NeverConnected
-    }
 }
 
 pub(crate) type ObservableStatus =
@@ -868,6 +863,7 @@ struct Connected {
     broadcast_by_topic: HashMap<Arc<Topic>, broadcast::Sender<Broadcast>>,
     joined_channel_txs_by_join_reference_by_topic:
         HashMap<Arc<Topic>, HashMap<JoinReference, JoinedChannelSenders>>,
+    #[allow(clippy::type_complexity)]
     reply_tx_by_reference_by_join_reference_by_topic: HashMap<
         Arc<Topic>,
         HashMap<
@@ -1215,9 +1211,9 @@ pub(crate) enum ChannelStateCommand {
     /// Tells the client to join `channel` to its desired topic, and then:
     ///
     /// * If joining was successful, notify the channel listener via `on_join`, and then tell
-    /// the caller the result of the overall join operation via `notify`
+    ///   the caller the result of the overall join operation via `notify`
     /// * If joining was unsuccessful, tell the caller via `notify`, and drop `on_join` to notify the
-    /// channel listener that the channel is being closed.
+    ///   channel listener that the channel is being closed.
     Join(Join),
     /// Tells the client to leave the given channel
     Leave(Leave),
