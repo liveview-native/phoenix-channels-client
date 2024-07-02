@@ -70,28 +70,15 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache deps
-        id: cache-deps
+          key: cargo-${{ github.workflow }}-${{ github.job}}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache mix deps
+        id: mix-deps
         uses: actions/cache@v4
-        env:
-          cache-name: cache-elixir-deps
         with:
-          path: tests/support/test_server/deps
-          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ env.cache-name }}-
-      - name: Cache compiled build
-        id: cache-build
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-compiled-build
-        with:
-          path: tests/support/test_server/_build
-          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ env.cache-name }}-
-            ${{ runner.os }}-mix-
+          path: |
+            tests/support/test_server/deps
+            tests/support/test_server/_build
+          key: mix-${{github.workflow}}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
 
       - name: Install hex, rebar3
         run: |
@@ -178,7 +165,7 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-${{ github.workflow }}-${{ github.job}}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build static library
         run: cargo build --lib --release # For some unclear reason, the release build has better errors.
@@ -222,7 +209,7 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ github.workflow }}-${{ github.job }}-toolchain-${{ env.TOOLCHAIN }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-${{ github.workflow }}-${{ github.job }}-${{runner.os}}-${{runner.arch}}-${{ hashFiles('**/Cargo.lock') }}
 
       - uses: taiki-e/install-action@v2
         with:
@@ -233,28 +220,14 @@ jobs:
           elixir-version:  1.15
           otp-version: 25
 
-      - name: Cache deps
-        id: cache-deps
+      - name: Cache mix deps
+        id: mix-deps
         uses: actions/cache@v4
-        env:
-          cache-name: cache-elixir-deps
         with:
-          path: tests/support/test_server/deps
-          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ env.cache-name }}-
-
-      - name: Cache compiled build
-        id: cache-build
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-compiled-build
-        with:
-          path: tests/support/test_server/_build
-          key: ${{ runner.os }}-mix-${{ env.cache-name }}-2-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ env.cache-name }}-
-            ${{ runner.os }}-mix-
+          path: |
+            tests/support/test_server/deps
+            tests/support/test_server/_build
+          key: mix-${{github.workflow}}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -289,7 +262,7 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-${{ env.ANDROID_API }}
+          key: avd-${{ env.ANDROID_API }}-${{ github.workflow }}-${{ github.job }}-${{ runner.os }}-${{runner.arch}}
 
       - name: Create AVD and generate snapshot for caching
         if: steps.avd-cache.outputs.cache-hit != 'true'
