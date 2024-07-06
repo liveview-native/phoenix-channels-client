@@ -61,8 +61,6 @@ jobs:
           components: rust-src
           targets: aarch64-apple-ios-sim
 
-      - name: Set up Elixir
-        run: brew install elixir
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -71,25 +69,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/registry
           key: cargo-${{ github.workflow }}-${{ github.job}}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache mix deps
-        id: mix-deps
-        uses: actions/cache@v4
-        with:
-          path: |
-            tests/support/test_server/deps
-            tests/support/test_server/_build
-          key: mix-${{github.workflow}}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
-
-      - name: Install hex, rebar3
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-      - name: Install test server dependencies, compile server, run server in background
-        working-directory: ./tests/support/test_server
-        run: |
-          mix deps.get
-          mix compile
-          mix phx.server &
+      - uses: ./tests/support/test_server/
 
       - uses: taiki-e/install-action@v2
         with:
@@ -196,6 +176,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./tests/support/test_server/
       - name: Install Rust Nightly
         uses: dtolnay/rust-toolchain@master
         with:
@@ -215,36 +196,11 @@ jobs:
         with:
           tool: cargo-dinghy@0.7.1
 
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version:  1.15
-          otp-version: 25
-
-      - name: Cache mix deps
-        id: mix-deps
-        uses: actions/cache@v4
-        with:
-          path: |
-            tests/support/test_server/deps
-            tests/support/test_server/_build
-          key: mix-${{github.workflow}}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: 17
           distribution: 'temurin'
-
-      - name: Install hex, rebar3
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-      - name: Install test server dependencies, compile server, run server in background
-        working-directory: ./tests/support/test_server
-        run: |
-          mix deps.get
-          mix compile
-          mix phx.server &
 
       - name: Enable KVM
         run: |
