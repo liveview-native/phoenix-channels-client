@@ -38,7 +38,7 @@ jobs:
       - name: Cargo fmt
         run: cargo clippy -- -Dwarnings
 
-  apple_integration_tests:
+  apple_simulator_integration_tests:
     runs-on: macos-14
     strategy:
       matrix:
@@ -49,11 +49,10 @@ jobs:
             apple-target-os: "tvOS"
           - rust-target: "aarch64-apple-watchos-sim"
             apple-target-os: "watchOS"
-          - rust-target: "aarch64-apple-darwin"
-            apple-target-os: "macOS"
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./tests/support/test_server/
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -69,13 +68,12 @@ jobs:
             ~/.cargo/git
             ~/.cargo/registry
           key: cargo-${{ github.workflow }}-${{ github.job}}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
-      - uses: ./tests/support/test_server/
 
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-dinghy@0.7.1
+
       - name: Start Simulator
-        if:  ${{ matrix.apple-target-os != 'macOS' }}
         uses: futureware-tech/simulator-action@v3
         with:
           os: ${{ matrix.apple-target-os }}
@@ -116,21 +114,6 @@ jobs:
         run:
           cargo build -Zbuild-std --target ${{ matrix.rust-target }} --features native-tls
 
-      - name: Get JNA jar
-        if: ${{ matrix.apple-target-os == 'macOS' }}
-        run: wget 'https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar'
-
-      - name: Set up Elixir, kotlin and ktlint
-        if: ${{ matrix.apple-target-os == 'macOS' }}
-        run: brew install kotlin ktlint
-
-      - name: Test phoenix_channel_clients
-        if: ${{ matrix.apple-target-os == 'macOS' }}
-        env:
-          # This is required for the kotlin uniffi tests
-          CLASSPATH: "/opt/homebrew/opt/kotlin/libexec/lib/kotlinx-coroutines-core-jvm.jar:./jna-5.14.0.jar"
-        run: cargo test
-
   uniffi-check:
     runs-on: macos-14
     steps:
@@ -158,17 +141,44 @@ jobs:
 
   integration_tests:
     # rust cross-compilation
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-14, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./tests/support/test_server/
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.TOOLCHAIN }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-${{ github.workflow }}-${{ github.job}}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Build phoenix_channels_client
         run: cargo build --all-targets
       - name: Generate docs for phoenix_channel_clients
         run: cargo doc
+
+      - name: Get JNA jar
+        run: wget 'https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar'
+
+      - name: Set up Elixir, kotlin and ktlint
+        if: ${{ runner.os == 'macOS' }}
+        run: brew install ktlint
+
+      - name: Test phoenix_channel_clients
+        env:
+          # This is required for the kotlin uniffi tests
+          CLASSPATH: "/opt/homebrew/opt/kotlin/libexec/lib/kotlinx-coroutines-core-jvm.jar:./jna-5.14.0.jar"
+        run: cargo test
 
   android_simulator_integration_tests:
     # rust cross-compilation
