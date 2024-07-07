@@ -38,7 +38,7 @@ jobs:
       - name: Cargo fmt
         run: cargo clippy -- -Dwarnings
 
-  apple_integration_tests:
+  apple_simulator_integration_tests:
     runs-on: macos-14
     strategy:
       matrix:
@@ -49,11 +49,10 @@ jobs:
             apple-target-os: "tvOS"
           - rust-target: "aarch64-apple-watchos-sim"
             apple-target-os: "watchOS"
-          - rust-target: "aarch64-apple-darwin"
-            apple-target-os: "macOS"
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./tests/support/test_server/
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -61,8 +60,6 @@ jobs:
           components: rust-src
           targets: aarch64-apple-ios-sim
 
-      - name: Set up Elixir
-        run: brew install elixir
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -71,31 +68,12 @@ jobs:
             ~/.cargo/git
             ~/.cargo/registry
           key: cargo-${{ github.workflow }}-${{ github.job}}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache mix deps
-        id: mix-deps
-        uses: actions/cache@v4
-        with:
-          path: |
-            tests/support/test_server/deps
-            tests/support/test_server/_build
-          key: mix-${{github.workflow}}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
-
-      - name: Install hex, rebar3
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-      - name: Install test server dependencies, compile server, run server in background
-        working-directory: ./tests/support/test_server
-        run: |
-          mix deps.get
-          mix compile
-          mix phx.server &
 
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-dinghy@0.7.1
+
       - name: Start Simulator
-        if:  ${{ matrix.apple-target-os != 'macOS' }}
         uses: futureware-tech/simulator-action@v3
         with:
           os: ${{ matrix.apple-target-os }}
@@ -136,21 +114,6 @@ jobs:
         run:
           cargo build -Zbuild-std --target ${{ matrix.rust-target }} --features native-tls
 
-      - name: Get JNA jar
-        if: ${{ matrix.apple-target-os == 'macOS' }}
-        run: wget 'https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar'
-
-      - name: Set up Elixir, kotlin and ktlint
-        if: ${{ matrix.apple-target-os == 'macOS' }}
-        run: brew install kotlin ktlint
-
-      - name: Test phoenix_channel_clients
-        if: ${{ matrix.apple-target-os == 'macOS' }}
-        env:
-          # This is required for the kotlin uniffi tests
-          CLASSPATH: "/opt/homebrew/opt/kotlin/libexec/lib/kotlinx-coroutines-core-jvm.jar:./jna-5.14.0.jar"
-        run: cargo test
-
   uniffi-check:
     runs-on: macos-14
     steps:
@@ -178,17 +141,41 @@ jobs:
 
   integration_tests:
     # rust cross-compilation
-    runs-on: ubuntu-latest
+    runs-on: macos-14
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./tests/support/test_server/
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.TOOLCHAIN }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-${{ github.workflow }}-${{ github.job}}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Build phoenix_channels_client
         run: cargo build --all-targets
       - name: Generate docs for phoenix_channel_clients
         run: cargo doc
+
+      - name: Get JNA jar
+        run: wget 'https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar'
+
+      - name: Set up Elixir, kotlin and ktlint
+        if: ${{ runner.os == 'macOS' }}
+        run: brew install ktlint
+
+      - name: Test phoenix_channel_clients
+        env:
+          # This is required for the kotlin uniffi tests
+          CLASSPATH: "/opt/homebrew/opt/kotlin/libexec/lib/kotlinx-coroutines-core-jvm.jar:./jna-5.14.0.jar"
+        run: cargo test
 
   android_simulator_integration_tests:
     # rust cross-compilation
@@ -196,6 +183,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./tests/support/test_server/
       - name: Install Rust Nightly
         uses: dtolnay/rust-toolchain@master
         with:
@@ -215,36 +203,11 @@ jobs:
         with:
           tool: cargo-dinghy@0.7.1
 
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version:  1.15
-          otp-version: 25
-
-      - name: Cache mix deps
-        id: mix-deps
-        uses: actions/cache@v4
-        with:
-          path: |
-            tests/support/test_server/deps
-            tests/support/test_server/_build
-          key: mix-${{github.workflow}}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: 17
           distribution: 'temurin'
-
-      - name: Install hex, rebar3
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-      - name: Install test server dependencies, compile server, run server in background
-        working-directory: ./tests/support/test_server
-        run: |
-          mix deps.get
-          mix compile
-          mix phx.server &
 
       - name: Enable KVM
         run: |
