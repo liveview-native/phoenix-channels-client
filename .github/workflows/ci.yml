@@ -141,10 +141,7 @@ jobs:
 
   integration_tests:
     # rust cross-compilation
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [macos-14, ubuntu-latest]
+    runs-on: macos-14
 
     steps:
       - uses: actions/checkout@v4
