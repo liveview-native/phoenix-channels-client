@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(feature = "nightly", feature(slice_take))]
 // doc warnings that aren't on by default
-#![warn(missing_docs)]
-#![warn(rustdoc::unescaped_backticks)]
+//#![warn(missing_docs)]
+//#![warn(rustdoc::unescaped_backticks)]
 
 mod ffi;
 mod rust;
