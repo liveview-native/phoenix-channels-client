@@ -13,13 +13,19 @@ use futures::SinkExt;
 use futures::StreamExt;
 use log::{debug, error, trace};
 use serde_json::Value;
-use tokio::net::TcpStream;
+
+
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::{Instant, Interval, Sleep};
 use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
 use url::Url;
+
+#[cfg(not(target_family = "wasm"))]
+type StreamType = tokio::net::TcpStream;
+#[cfg(target_family = "wasm")]
+type StreamType = async_io_stream::IoStream<ws_stream_wasm::WsStreamIo, Vec<u8>>;
 
 use crate::ffi::channel::Channel;
 use crate::ffi::message::PhoenixEvent;
@@ -712,15 +718,22 @@ impl Listener {
                 None
             }
         };
-        #[cfg(feature = "native-tls")]
+        #[cfg(all(not(target_family = "wasm"), feature = "native-tls"))]
         let connector = tokio_tungstenite::connect_async_tls_with_config(
             request.body(()).expect("Failed to build http request"),
             None,
             false,
             connector,
         );
-        #[cfg(not(feature = "native-tls"))]
+        #[cfg(all(not(target_family = "wasm"), not(feature = "native-tls")))]
         let connector = tokio_tungstenite::connect_async_with_config(
+            request.body(()).expect("Failed to build http request"),
+            None,
+            false,
+        );
+
+        #[cfg(target_family = "wasm")]
+        let connector = tokio_tungstenite::connect(
             request.body(()).expect("Failed to build http request"),
             None,
             false,
@@ -855,7 +868,7 @@ pub(crate) type ObservableStatus =
 
 #[must_use]
 struct Connected {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    socket: WebSocketStream<MaybeTlsStream<StreamType>>,
     heartbeat: Interval,
     sent_heartbeat_reference: Option<Reference>,
     join_by_reference_by_topic: HashMap<Arc<Topic>, HashMap<JoinReference, Join>>,
