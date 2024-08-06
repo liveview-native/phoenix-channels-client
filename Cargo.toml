@@ -40,7 +40,7 @@ default = ["tokio-tungstenite/connect"]
 nightly = []
 native-tls = ["tokio-tungstenite/native-tls-vendored", "dep:native-tls"]
 uniffi-build = ["uniffi/build", "uniffi/cli"]
-browser = ["tokio-tungstenite/js-connect", "getrandom/js", "ws_stream_wasm", "async_io_stream/tokio_io"]
+browser = ["tokio-tungstenite/js-connect", "getrandom/js", "ws_stream_wasm", "async_io_stream/tokio_io", "wasm-bindgen", "js-sys", "wasm-bindgen-futures", "gloo-timers", "web-time"]
 
 
 [dependencies]
@@ -61,9 +61,16 @@ uuid = { version = "1.10.0", features = ["v4"] }
 uniffi = { version = "0.28", features = ["tokio"] }
 native-tls = { version = "0.2", features = ["vendored"], optional = true }
 tokio-tungstenite = { version = "0.23.1", default-features = false, features = ["handshake", "stream"] }
+cfg-if = "0.1"
+
 getrandom = { version = "0.2", optional = true }
 ws_stream_wasm = { version = "0.7.4", optional = true }
-async_io_stream = { version = "0.3.3", optional = true}
+async_io_stream = { version = "0.3.3", optional = true }
+web-time = { version = "1.1.0", optional = true }
+wasm-bindgen = { version = "0.2.92", optional = true }
+js-sys = { version = "0.3.69", optional = true }
+wasm-bindgen-futures = { version = "0.4.42", optional = true }
+gloo-timers = { version = "0.3.0", features = ["futures"], optional = true }
 
 [dev-dependencies]
 chrono = "0.4.31"
@@ -82,4 +89,6 @@ core-foundation-sys = { git = "https://github.com/servo/core-foundation-rs", rev
 # https://github.com/rust-lang/socket2/pull/503
 socket2 = { git = "https://github.com/QuentinPerez/socket2.git", rev = "ca3a93088857b40c27e98d1690f242a7ba8da4dc" }
 
-tokio-tungstenite = { git = "https://github.com/simlay/tokio-tungstenite.git", branch = "add-browser-wasm-support" }
+#tokio-tungstenite = { git = "https://github.com/simlay/tokio-tungstenite.git", branch = "add-browser-wasm-support" }
+tokio-tungstenite = { path = "../tokio-tungstenite/" }
+tokio = { path = "../tokio/tokio/" }

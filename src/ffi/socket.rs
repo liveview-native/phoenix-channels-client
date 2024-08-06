@@ -346,7 +346,7 @@ impl Socket {
         match self
             .state_command_tx
             .send(StateCommand::Connect(Connect {
-                created_at,
+                //created_at,
                 timeout,
                 connected_tx,
             }))

@@ -11,6 +11,7 @@ defmodule TestServer.Endpoint do
        config,
        https: false,
        http: [port: 9002],
+       check_origin: false,
        secret_key_base: String.duplicate("abcdefgh", 8),
        debug_errors: false,
        server: true

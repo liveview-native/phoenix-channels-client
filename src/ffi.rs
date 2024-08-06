@@ -16,7 +16,7 @@ use std::ops::{Add, Sub};
 use std::time::SystemTime;
 
 use tokio::time::error::Elapsed;
-use tokio::time::Instant;
+use crate::Instant;
 use url::Url;
 
 use crate::ffi::observable_status::StatusesError;

@@ -8,6 +8,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::Instant;
+
 use futures::stream::FuturesUnordered;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -18,7 +20,7 @@ use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time;
-use tokio::time::{Instant, Interval, Sleep};
+use tokio::time::{Interval, Sleep};
 use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
@@ -71,8 +73,13 @@ impl Listener {
             channel_state_command_rx,
             channel_send_command_rx,
         );
-
-        tokio::spawn(listener.listen())
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_family = "wasm", target_os = "unknown"))] {
+                tokio::task::spawn_local(listener.listen())
+            } else {
+                tokio::task::spawn(listener.listen())
+            }
+        }
     }
 
     fn init(
@@ -198,7 +205,7 @@ impl Listener {
         let (connect_result, next_state) = match state {
             State::NeverConnected | State::Disconnected => {
                 match self
-                    .socket_connect(connect.created_at, connect.reconnect())
+                    .socket_connect(connect.reconnect())
                     .await
                 {
                     Ok(state) => (Ok(()), state),
@@ -519,7 +526,17 @@ impl Listener {
         topic: Arc<Topic>,
         join_reference: JoinReference,
     ) -> JoinKey {
+        //#[cfg(not(feature = "browser"))]
         time::sleep_until(deadline).await;
+        /*
+        #[cfg(feature = "browser")]
+        {
+            let now = Instant::now();
+            if now > deadline {
+                gloo_timers::future::sleep(now - deadline).await;
+            }
+        }
+        */
 
         JoinKey {
             topic,
@@ -674,7 +691,7 @@ impl Listener {
     }
 
     async fn reconnect(&self, reconnect: Reconnect) -> State {
-        match self.socket_connect(Instant::now(), reconnect).await {
+        match self.socket_connect(reconnect).await {
             Ok(state) => state,
             Err((_connect_error, reconnect)) => reconnect.wait(),
         }
@@ -682,7 +699,6 @@ impl Listener {
 
     async fn socket_connect(
         &self,
-        created_at: Instant,
         reconnect: Reconnect,
     ) -> Result<State, (ConnectError, Reconnect)> {
         let url = self.url.clone();
@@ -738,8 +754,55 @@ impl Listener {
             None,
             false,
         );
+        #[cfg(not(target_family = "wasm"))]
+        let timeout = time::sleep(reconnect.connect_timeout);
 
-        match time::timeout_at(created_at + reconnect.connect_timeout, connector).await {
+        #[cfg(target_family = "wasm")]
+        let timeout = {
+            let timeout_ms = u32::try_from(reconnect.connect_timeout.as_millis()).expect("Failed to convert durration intu 32");
+            gloo_timers::future::TimeoutFuture::new(timeout_ms)
+        };
+
+
+        tokio::select! {
+            _ = timeout => {
+                Err((ConnectError::Timeout, reconnect))
+            },
+            connector = connector => {
+                match connector {
+                    Ok((socket, _response)) => {
+                        let duration = Duration::from_secs(30);
+                        let mut heartbeat = time::interval(duration);
+                        heartbeat.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
+                        self.connectivity_tx.send(Connectivity::Connected).ok();
+
+                        Ok(State::Connected(Connected {
+                            socket,
+                            heartbeat,
+                            sent_heartbeat_reference: None,
+                            join_by_reference_by_topic: Default::default(),
+                            join_timeouts: Default::default(),
+                            broadcast_by_topic: Default::default(),
+                            joined_channel_txs_by_join_reference_by_topic: Default::default(),
+                            reply_tx_by_reference_by_join_reference_by_topic: Default::default(),
+                            connect_timeout: reconnect.connect_timeout,
+                        }))
+                    }
+                    Err(error) => {
+                        let arc_error = Arc::new(error);
+                        debug!("Error connecting to {}: {}", self.url, arc_error);
+                        self.socket_status.error(arc_error.clone());
+
+                        Err((arc_error.into(), reconnect))
+                    }
+                }
+
+            }
+        }
+
+        /*
+        match timeout.await {
             Ok(connect_result) => match connect_result {
                 Ok((socket, _response)) => {
                     let duration = Duration::from_secs(30);
@@ -770,6 +833,7 @@ impl Listener {
             },
             Err(_) => Err((ConnectError::Timeout, reconnect)),
         }
+        */
     }
 
     async fn shutdown(&self, state: State) -> State {
@@ -835,7 +899,8 @@ impl Debug for State {
                 .debug_struct("WaitingToReconnect")
                 .field(
                     "duration_until_sleep_over",
-                    &(sleep.deadline() - Instant::now()),
+                    &(Instant::now())
+                    //&(sleep.deadline() - Instant::now()),
                 )
                 .field("reconnect", reconnect)
                 .finish(),
@@ -1292,8 +1357,6 @@ pub(crate) struct Cast {
 }
 
 pub struct Connect {
-    /// When the connect was created
-    pub created_at: Instant,
     /// How long after `created_at` must the connect complete
     pub timeout: Duration,
     pub connected_tx: oneshot::Sender<Result<(), ConnectError>>,
