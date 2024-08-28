@@ -16,7 +16,6 @@ use futures::StreamExt;
 use log::{debug, error, trace};
 use serde_json::Value;
 
-
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -204,10 +203,7 @@ impl Listener {
     async fn connect(&self, state: State, connect: Connect) -> State {
         let (connect_result, next_state) = match state {
             State::NeverConnected | State::Disconnected => {
-                match self
-                    .socket_connect(connect.reconnect())
-                    .await
-                {
+                match self.socket_connect(connect.reconnect()).await {
                     Ok(state) => (Ok(()), state),
                     Err((connect_error, reconnect)) => (Err(connect_error), reconnect.wait()),
                 }
@@ -759,10 +755,10 @@ impl Listener {
 
         #[cfg(target_family = "wasm")]
         let timeout = {
-            let timeout_ms = u32::try_from(reconnect.connect_timeout.as_millis()).expect("Failed to convert durration intu 32");
+            let timeout_ms = u32::try_from(reconnect.connect_timeout.as_millis())
+                .expect("Failed to convert durration intu 32");
             gloo_timers::future::TimeoutFuture::new(timeout_ms)
         };
-
 
         tokio::select! {
             _ = timeout => {
@@ -893,14 +889,11 @@ impl Debug for State {
             State::Disconnected { .. } => write!(f, "Disconnected"),
             State::ShuttingDown => write!(f, "ShuttingDown"),
             State::Connected(connected) => f.debug_tuple("Connected").field(connected).finish(),
-            State::WaitingToReconnect {
-                sleep, reconnect, ..
-            } => f
+            State::WaitingToReconnect { reconnect, .. } => f
                 .debug_struct("WaitingToReconnect")
                 .field(
                     "duration_until_sleep_over",
-                    &(Instant::now())
-                    //&(sleep.deadline() - Instant::now()),
+                    &(Instant::now()), //&(sleep.deadline() - Instant::now()),
                 )
                 .field("reconnect", reconnect)
                 .finish(),

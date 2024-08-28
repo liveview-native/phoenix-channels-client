@@ -15,8 +15,8 @@ pub mod web_socket;
 use std::ops::{Add, Sub};
 use std::time::SystemTime;
 
-use tokio::time::error::Elapsed;
 use crate::Instant;
+use tokio::time::error::Elapsed;
 use url::Url;
 
 use crate::ffi::observable_status::StatusesError;

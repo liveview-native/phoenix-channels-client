@@ -12,13 +12,11 @@ mod wasm_helpers;
 
 cfg_if::cfg_if! {
     if #[cfg(not(all(target_family = "wasm", target_os = "unknown")))] {
-        pub (crate) type Interval = tokio::time::Interval;
         pub (crate) type Instant = tokio::time::Instant;
     } else {
         pub (crate) type Instant = tokio::time::Instant;
     }
 }
-
 
 // All types should be at the root as `uniffi` only exposes one namespace to foreign code
 pub use ffi::channel::statuses::{ChannelStatusJoinError, ChannelStatuses};
