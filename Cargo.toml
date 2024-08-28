@@ -9,7 +9,7 @@ homepage = "https://github.com/liveview-native/phoenix-channels"
 documentation = "https://github.com/liveview-native/phoenix-channels"
 categories = ["asynchronous", "web-programming:websocket"]
 keywords = ["phoenix", "channels", "elixir"]
-license = "Apache-2.0"
+license = "MIT"
 readme = "README.md"
 edition = "2021"
 
