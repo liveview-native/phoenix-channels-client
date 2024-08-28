@@ -9,7 +9,7 @@ homepage = "https://github.com/liveview-native/phoenix-channels"
 documentation = "https://github.com/liveview-native/phoenix-channels"
 categories = ["asynchronous", "web-programming:websocket"]
 keywords = ["phoenix", "channels", "elixir"]
-license = "Apache-2.0"
+license = "MIT"
 readme = "README.md"
 edition = "2021"
 
@@ -36,10 +36,11 @@ strip = true        # Strip symbols from binary*
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = []
+default = ["tokio-tungstenite/connect"]
 nightly = []
 native-tls = ["tokio-tungstenite/native-tls-vendored", "dep:native-tls"]
 uniffi-build = ["uniffi/build", "uniffi/cli"]
+browser = ["tokio-tungstenite/js-connect", "getrandom/js", "ws_stream_wasm", "async_io_stream/tokio_io", "wasm-bindgen", "js-sys", "wasm-bindgen-futures", "gloo-timers", "web-time"]
 
 
 [dependencies]
@@ -55,11 +56,21 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 tokio = { version = "1.39", features = ["sync", "macros", "time" ] }
-tokio-tungstenite = "0.23.0"
-uniffi = { version = "0.28", features = ["tokio"] }
 url = "2.5"
 uuid = { version = "1.10.0", features = ["v4"] }
-native-tls = { version = "0.2", features = ["vendored"], optional = true}
+uniffi = { version = "0.28", features = ["tokio"] }
+native-tls = { version = "0.2", features = ["vendored"], optional = true }
+tokio-tungstenite = { version = "0.23.1", default-features = false, features = ["handshake", "stream"] }
+cfg-if = "0.1"
+
+getrandom = { version = "0.2", optional = true }
+ws_stream_wasm = { version = "0.7.4", optional = true }
+async_io_stream = { version = "0.3.3", optional = true }
+web-time = { version = "1.1.0", optional = true }
+wasm-bindgen = { version = "0.2.92", optional = true }
+js-sys = { version = "0.3.69", optional = true }
+wasm-bindgen-futures = { version = "0.4.42", optional = true }
+gloo-timers = { version = "0.3.0", features = ["futures"], optional = true }
 
 [dev-dependencies]
 chrono = "0.4.31"
@@ -75,8 +86,9 @@ security-framework-sys = { git = "https://github.com/kornelski/rust-security-fra
 # https://github.com/servo/core-foundation-rs/pull/679
 core-foundation-sys = { git = "https://github.com/servo/core-foundation-rs", rev = "fb8fd65eef1b2ef247055e944cf258d53f2a517a" }
 
-# https://github.com/tokio-rs/mio/pull/1773 and backport PR.
-mio = { git = "https://github.com/simlay/mio.git", rev = "7b8b2e605ad64bcabf1f0af4366aa404a8b6bbdc" }
-
 # https://github.com/rust-lang/socket2/pull/503
 socket2 = { git = "https://github.com/QuentinPerez/socket2.git", rev = "ca3a93088857b40c27e98d1690f242a7ba8da4dc" }
+
+#tokio-tungstenite = { git = "https://github.com/simlay/tokio-tungstenite.git", branch = "add-browser-wasm-support" }
+tokio-tungstenite = { path = "../tokio-tungstenite/" }
+tokio = { path = "../tokio/tokio/" }

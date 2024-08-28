@@ -38,6 +38,20 @@ jobs:
       - name: Cargo fmt
         run: cargo clippy -- -Dwarnings
 
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./tests/support/test_server/
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Builb wasm
+        run: cargo build --target wasm32-unknown-unknown --no-default-features --features browser
+
   apple_simulator_integration_tests:
     runs-on: macos-14
     strategy:

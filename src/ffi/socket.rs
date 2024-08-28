@@ -340,13 +340,11 @@ impl Socket {
     /// worker from the task runtime (though it will continue to run in the background)
     pub async fn connect(&self, timeout: Duration) -> Result<(), ConnectError> {
         let (connected_tx, connected_rx) = oneshot::channel();
-        let created_at = Instant::now();
         let deadline = Instant::now() + timeout;
 
         match self
             .state_command_tx
             .send(StateCommand::Connect(Connect {
-                created_at,
                 timeout,
                 connected_tx,
             }))
