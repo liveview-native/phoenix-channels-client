@@ -273,7 +273,10 @@ pub struct Socket {
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
     #[uniffi::constructor]
-    pub async fn spawn(mut url: Url, cookies: Option<Vec<String>>) -> Result<Arc<Self>, SpawnError> {
+    pub async fn spawn(
+        mut url: Url,
+        cookies: Option<Vec<String>>,
+    ) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
             _ => return Err(SpawnError::UnsupportedScheme { url }),
