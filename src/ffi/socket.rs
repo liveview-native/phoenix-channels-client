@@ -21,7 +21,7 @@
 //! )?;
 //!
 //! // Create a socket
-//! let socket = Socket::spawn(url, None);
+//! let socket = Socket::spawn(url, None).await;
 //! # Ok(())
 //! # }
 //! ```
@@ -48,7 +48,7 @@
 //! )?;
 //!
 //! // Create a socket
-//! let socket = Socket::spawn(url, None)?;
+//! let socket = Socket::spawn(url, None).await?;
 //!
 //! // Connecting the socket returns the authorization error
 //! match socket.connect(Duration::from_secs(5)).await {
@@ -89,7 +89,7 @@
 //!     "ws://127.0.0.1:9002/socket/websocket",
 //!     &[("secret", secret.clone()), ("id", id.clone())],
 //! )?;
-//! let secret_socket = Socket::spawn(secret_url, None).unwrap();
+//! let secret_socket = Socket::spawn(secret_url, None).await.unwrap();
 //! secret_socket.connect(Duration::from_secs(10)).await?;
 //! let mut statuses = secret_socket.statuses();
 //!
@@ -124,7 +124,7 @@
 //! #         &[("shared_secret", "supersecret"), ("id", id.clone())],
 //! #     ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url, None).unwrap();
+//! #     let socket = Socket::spawn(url, None).await.unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
@@ -160,7 +160,7 @@
 //! #        &[("secret", secret), ("id", id.clone())],
 //! #    ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url, None).unwrap();
+//! #     let socket = Socket::spawn(url, None).await.unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
@@ -273,7 +273,10 @@ pub struct Socket {
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
     #[uniffi::constructor]
-    pub fn spawn(mut url: Url, cookies: Option<Vec<String>>) -> Result<Arc<Self>, SpawnError> {
+    pub async fn spawn(
+        mut url: Url,
+        cookies: Option<Vec<String>>,
+    ) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
             _ => return Err(SpawnError::UnsupportedScheme { url }),

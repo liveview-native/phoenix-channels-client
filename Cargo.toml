@@ -56,7 +56,7 @@ serde_json = "1.0"
 thiserror = "1.0"
 tokio = { version = "1.40", features = ["sync", "macros", "time" ] }
 tokio-tungstenite = "0.23.0"
-uniffi = { version = "0.28", features = ["tokio"] }
+uniffi = { version = "0.28.0", features = ["tokio"] }
 url = "2.5"
 uuid = { version = "1.10.0", features = ["v4"] }
 native-tls = { version = "0.2", features = ["vendored"], optional = true}
@@ -64,7 +64,7 @@ native-tls = { version = "0.2", features = ["vendored"], optional = true}
 [dev-dependencies]
 chrono = "0.4.31"
 env_logger = "0.11"
-uniffi = { version = "0.28", features = ["bindgen-tests", "tokio"]}
+uniffi = { version = "0.28.0", features = ["bindgen-tests", "tokio"]}
 tokio = { version = "1.40", features = ["full", "test-util"] }
 
 [patch.crates-io]
@@ -74,9 +74,3 @@ security-framework-sys = { git = "https://github.com/kornelski/rust-security-fra
 
 # https://github.com/servo/core-foundation-rs/pull/679
 core-foundation-sys = { git = "https://github.com/servo/core-foundation-rs", rev = "fb8fd65eef1b2ef247055e944cf258d53f2a517a" }
-
-# https://github.com/tokio-rs/mio/pull/1773 and backport PR.
-mio = { git = "https://github.com/simlay/mio.git", rev = "7b8b2e605ad64bcabf1f0af4366aa404a8b6bbdc" }
-
-# https://github.com/rust-lang/socket2/pull/503
-socket2 = { git = "https://github.com/QuentinPerez/socket2.git", rev = "ca3a93088857b40c27e98d1690f242a7ba8da4dc" }

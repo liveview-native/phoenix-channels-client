@@ -1235,8 +1235,9 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
 name = "socket2"
-version = "0.5.6"
-source = "git+https://github.com/QuentinPerez/socket2.git?rev=ca3a93088857b40c27e98d1690f242a7ba8da4dc#ca3a93088857b40c27e98d1690f242a7ba8da4dc"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce305eb0b4296696835b71df73eb912e0f1ffd2556a501fcede6e0c50349191c"
 dependencies = [
  "libc",
  "windows-sys",
@@ -1764,8 +1765,3 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[patch.unused]]
-name = "mio"
-version = "0.8.11"
-source = "git+https://github.com/simlay/mio.git?rev=7b8b2e605ad64bcabf1f0af4366aa404a8b6bbdc#7b8b2e605ad64bcabf1f0af4366aa404a8b6bbdc"
