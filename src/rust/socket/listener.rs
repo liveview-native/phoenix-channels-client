@@ -526,6 +526,7 @@ impl Listener {
             "client is leaving channel '{}' ({})",
             &leave.topic, &leave.join_reference
         );
+        let reference = Reference::new();
 
         let message = Message::Push(Push {
             topic: leave.topic.clone(),
@@ -534,7 +535,7 @@ impl Listener {
                 payload: Value::Null.into(),
             },
             join_reference: leave.join_reference.clone(),
-            reference: None,
+            reference: Some(reference),
         });
         let data = message.encode().unwrap();
 
