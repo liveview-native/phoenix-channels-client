@@ -6,11 +6,29 @@ defmodule TestServer.Channel do
   require Logger
 
   alias Phoenix.Socket
+  alias TestServer.Presence
 
   intercept ~w(deauthorized)
 
   def join("channel:error:" <> _, payload, _socket) do
     {:error, payload}
+  end
+
+  def join("channel:presence", _, socket) do
+    send(self(), :after_presence_join)
+
+    {:ok, socket}
+  end
+
+  def handle_info(:after_presence_join, socket) do
+    {:ok, _} =
+      Presence.track(socket, socket.id, %{
+        online_at: inspect(System.system_time(:second))
+      })
+
+    push(socket, "presence_state", Presence.list(socket))
+
+    {:noreply, socket}
   end
 
   def join("channel:protected" = channel, _, %Phoenix.Socket{assigns: %{id: id}} = socket) do

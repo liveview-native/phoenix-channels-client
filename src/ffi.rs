@@ -8,6 +8,8 @@ pub mod io;
 pub mod json;
 pub mod message;
 pub mod observable_status;
+pub mod presence;
+pub mod presences;
 pub mod socket;
 pub mod topic;
 pub mod web_socket;
@@ -56,6 +58,15 @@ pub enum PhoenixError {
         /// [Socket::statuses](crate::Socket::statuses).
         #[from]
         statuses: StatusesError,
+    },
+    /// An error from calling [Presences](crate::Presences), [PresencesJoins](crate::PresencesJoins),
+    /// [PresencesLeaves](crate::PresencesLeaves), or [PresencesJoins](crate::PresencesJoins).
+    #[error(transparent)]
+    Presences {
+        /// An error from calling [Presences](crate::Presences), [PresencesJoins](crate::PresencesJoins),
+        /// [PresencesLeaves](crate::PresencesLeaves), or [PresencesJoins](crate::PresencesJoins).
+        #[from]
+        presences: presences::PresencesError,
     },
 }
 impl From<Elapsed> for PhoenixError {
@@ -156,6 +167,10 @@ from_for_error!(channel::CallError, Channel, channel);
 from_for_error!(channel::CastError, Channel, channel);
 from_for_error!(channel::LeaveError, Channel, channel);
 from_for_error!(channel::ChannelShutdownError, Channel, channel);
+from_for_error!(presences::PresencesJoinsError, Presences, presences);
+from_for_error!(presences::PresencesLeavesError, Presences, presences);
+from_for_error!(presences::PresencesSyncsError, Presences, presences);
+from_for_error!(presences::PresencesShutdownError, Presences, presences);
 
 use crate::UniffiCustomTypeConverter;
 

@@ -217,6 +217,7 @@ use tokio::time::Instant;
 
 use crate::ffi::channel::statuses::ChannelStatuses;
 use crate::ffi::message::{Event, Payload};
+use crate::ffi::presences::Presences;
 use crate::ffi::socket::SocketShutdownError;
 use crate::ffi::topic::Topic;
 use crate::ffi::web_socket::error::WebSocketError;
@@ -416,6 +417,11 @@ impl Channel {
             }
             Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
         }
+    }
+
+    /// Creates a [Presences] for the channel
+    pub async fn presences(self: &Arc<Self>) -> Arc<Presences> {
+        Arc::new(Presences::spawn(self.clone()).await)
     }
 
     /// Leaves this channel

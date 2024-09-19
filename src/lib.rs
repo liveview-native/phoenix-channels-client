@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(feature = "nightly", feature(slice_take))]
+#![feature(hash_extract_if)]
 // doc warnings that aren't on by default
 #![warn(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
@@ -17,6 +18,10 @@ pub use ffi::io::error::IoError;
 pub use ffi::json::{JSONDeserializationError, Number, JSON};
 pub use ffi::message::{Event, Payload, PhoenixEvent};
 pub use ffi::observable_status::StatusesError;
+pub use ffi::presence::Presence;
+pub use ffi::presences::{
+    Presences, PresencesJoin, PresencesJoins, PresencesLeave, PresencesLeaves,
+};
 pub use ffi::socket::{
     ConnectError, Socket, SocketChannelError, SocketError, SocketStatus, SocketStatuses, SpawnError,
 };
