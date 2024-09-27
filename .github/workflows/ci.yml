@@ -103,6 +103,16 @@ jobs:
         run:
           cargo build ${{ matrix.build-std }} --target ${{ matrix.rust-target }} --features native-tls 
 
+      - name: Phx server logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-${{ matrix.rust-target }}
+          path: |
+            tests/support/test_server/server.stdout.txt
+            tests/support/test_server/server.stderr.txt
+            /Users/runner/Library/Developer/CoreSimulator/Devices/*/data/Containers/Bundle/Application/*/Dinghy.app/stdout
+
   uniffi-check:
     runs-on: macos-14
     steps:
