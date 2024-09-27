@@ -41,6 +41,7 @@ jobs:
   apple_simulator_integration_tests:
     runs-on: macos-14
     strategy:
+      fail-fast: false
       matrix:
         rust-target: ["aarch64-apple-ios-sim"]
         apple-target-os: [ "iOS" ]
@@ -93,6 +94,7 @@ jobs:
 
       - name: Test for for ${{ matrix.rust-target }}
         env:
+          DINGHY_LOG: debug
           SIMCTL_CHILD_RUST_LOG: trace
           SIMCTL_CHILD_RUST_BACKTRACE: full
         timeout-minutes: 30
