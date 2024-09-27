@@ -1,6 +1,11 @@
 name: CI
 
-on: pull_request
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
 
 env:
   TOOLCHAIN: nightly
@@ -99,11 +104,11 @@ jobs:
           SIMCTL_CHILD_RUST_BACKTRACE: full
         timeout-minutes: 30
         run: |
-          cargo ${{ matrix.build-std }} test --target ${{ matrix.rust-target }} -- -- --nocapture
+          cargo ${{ matrix.build-std }} test --target ${{ matrix.rust-target }} -- -- --test-threads 1 
 
       - name: Build phoenix_channel_clients with tls
         run:
-          cargo build ${{ matrix.build-std }} --target ${{ matrix.rust-target }} --features native-tls 
+          cargo build ${{ matrix.build-std }} --target ${{ matrix.rust-target }} --features native-tls
 
       - name: Phx server logs
         if: ${{ failure() }}
