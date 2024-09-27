@@ -5,5 +5,7 @@ pub mod channel;
 pub mod join_reference;
 pub mod message;
 pub mod observable_status;
+pub mod presence;
+pub mod presences;
 pub mod reference;
 pub mod socket;

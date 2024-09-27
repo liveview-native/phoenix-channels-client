@@ -209,7 +209,6 @@ pub enum IoError {
     /// Errors that are `Uncategorized` now may move to a different or a new
     /// [`ErrorKind`] variant in the future. It is not recommended to match
     /// an error against `Uncategorized`; use a wildcard match (`_`) instead.
-
     #[error("uncategorized error")]
     Uncategorized,
 }

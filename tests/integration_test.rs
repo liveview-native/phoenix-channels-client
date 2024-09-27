@@ -17,8 +17,8 @@ use uuid::Uuid;
 // the foreign bindings
 use phoenix_channels_client::{
     CallError, ChannelJoinError, ChannelStatus, ChannelStatusJoinError, ChannelStatuses,
-    ConnectError, Event, EventPayload, IoError, Payload, PhoenixError, Socket, SocketStatus,
-    StatusesError, Topic, WebSocketError, JSON,
+    ConnectError, Event, EventPayload, IoError, Payload, PhoenixError, PresencesJoin,
+    PresencesLeave, Socket, SocketStatus, StatusesError, Topic, WebSocketError, JSON,
 };
 
 #[cfg(not(feature = "nightly"))]
@@ -892,6 +892,296 @@ async fn phoenix_channels_cast_error_test(
         .await;
 
     assert_matches!(result, Ok(()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn phoenix_presence() -> Result<(), PhoenixError> {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .is_test(true)
+        .try_init();
+
+    let topic = Topic::from_string("channel:presence".to_string());
+
+    let alice_id = "alice".to_string();
+    let alice_url = shared_secret_url(alice_id);
+
+    let first_alice_socket = connected_socket(alice_url.clone()).await?;
+    let first_alice_channel = first_alice_socket.channel(topic.clone(), None).await?;
+    let first_alice_presences = first_alice_channel.presences().await;
+    let first_alice_syncs = first_alice_presences.syncs();
+    let first_alice_joins = first_alice_presences.joins();
+    // First Alice leaves first, so she observes no leaves
+    first_alice_channel.join(JOIN_TIMEOUT).await?;
+
+    assert_matches!(
+        timeout(CALL_TIMEOUT, first_alice_syncs.sync())
+            .await
+            .unwrap(),
+        Ok(())
+    );
+
+    let PresencesJoin {
+        key,
+        current,
+        joined,
+    } = timeout(CALL_TIMEOUT, first_alice_joins.join()).await??;
+    assert_eq!(key, "sockets:alice");
+    assert_eq!(current, None);
+    assert_eq!(joined.metas.len(), 1);
+    let first_alice_join_reference = joined.metas[0].join_reference.to_owned();
+    let first_alice_online_at = &joined.metas[0].others["online_at"];
+
+    let bob_id = "bob".to_string();
+    let bob_url = shared_secret_url(bob_id);
+
+    let bob_socket = connected_socket(bob_url).await?;
+    let bob_channel = bob_socket.channel(topic.clone(), None).await?;
+    let bob_presences = bob_channel.presences().await;
+    let bob_syncs = bob_presences.syncs();
+    let bob_joins = bob_presences.joins();
+    let bob_leaves = bob_presences.leaves();
+    bob_channel.join(JOIN_TIMEOUT).await?;
+
+    assert_matches!(
+        timeout(CALL_TIMEOUT, bob_syncs.sync()).await.unwrap(),
+        Ok(())
+    );
+
+    let (bob_join_reference, bob_online_at) = loop {
+        let PresencesJoin {
+            key,
+            current,
+            joined: bob_joined,
+        } = timeout(CALL_TIMEOUT, bob_joins.join()).await??;
+
+        match key.as_str() {
+            // First alice's join doesn't always show up on bob.  There is a race of the join and presence broadcasts
+            "sockets:alice" => {
+                assert_eq!(current, None);
+                let bob_metas = &bob_joined.metas;
+                assert_eq!(bob_metas.len(), 1);
+                let bob_meta = &bob_metas[0];
+                assert_eq!(
+                    first_alice_join_reference,
+                    bob_meta.join_reference.to_owned()
+                );
+                assert_eq!(first_alice_online_at, &bob_meta.others["online_at"]);
+            }
+            // Bob sees Bob Join
+            "sockets:bob" => {
+                assert_eq!(current, None);
+                let bob_metas = &bob_joined.metas;
+                assert_eq!(bob_metas.len(), 1);
+                let bob_meta = &bob_metas[0];
+                let bob_join_reference = bob_meta.join_reference.to_owned();
+                assert_ne!(bob_join_reference, first_alice_join_reference);
+                let bob_online_at = bob_meta.others["online_at"].clone();
+
+                break (bob_join_reference, bob_online_at);
+            }
+            unknown_key => panic!("Unknown key: {}", unknown_key),
+        }
+    };
+
+    // First Alice
+    loop {
+        let PresencesJoin {
+            key,
+            current,
+            joined: alice_joined,
+        } = timeout(CALL_TIMEOUT, first_alice_joins.join()).await??;
+
+        match key.as_str() {
+            // First Alice MAY see First Alice join again, but with a current
+            "sockets:alice" => {
+                let current = current.clone().unwrap();
+                let current_metas = current.metas;
+                assert_eq!(current_metas.len(), 1);
+                let current_meta = &current_metas[0];
+                assert_eq!(
+                    first_alice_join_reference,
+                    current_meta.join_reference.to_owned()
+                );
+                assert_eq!(first_alice_online_at, &current_meta.others["online_at"]);
+                let bob_metas = &alice_joined.metas;
+                assert_eq!(bob_metas.len(), 1);
+                let bob_meta = &bob_metas[0];
+                assert_eq!(
+                    first_alice_join_reference,
+                    bob_meta.join_reference.to_owned()
+                );
+                assert_eq!(first_alice_online_at, &bob_meta.others["online_at"]);
+            }
+            // First ALice MUST see Bob join
+            "sockets:bob" => {
+                assert_eq!(current, None);
+                let bob_metas = &alice_joined.metas;
+                assert_eq!(bob_metas.len(), 1);
+                let bob_meta = &bob_metas[0];
+                assert_eq!(bob_meta.join_reference, bob_join_reference);
+                assert_eq!(bob_meta.others["online_at"], bob_online_at);
+
+                break;
+            }
+            unknown_key => panic!("Unknown key: {}", unknown_key),
+        }
+    }
+
+    let second_alice_socket = connected_socket(alice_url).await?;
+    let second_alice_channel = second_alice_socket.channel(topic, None).await?;
+    let second_alice_presences = second_alice_channel.presences().await;
+    let second_alice_syncs = second_alice_presences.syncs();
+    let second_alice_joins = second_alice_presences.joins();
+    let second_alice_leaves = second_alice_presences.leaves();
+    second_alice_channel.join(JOIN_TIMEOUT).await?;
+
+    assert_matches!(
+        timeout(CALL_TIMEOUT, second_alice_syncs.sync())
+            .await
+            .unwrap(),
+        Ok(())
+    );
+
+    // Second Alice
+    let (second_alice_join_refernece, second_alice_online_at) = loop {
+        let PresencesJoin {
+            key,
+            current,
+            joined,
+        } = timeout(CALL_TIMEOUT, second_alice_joins.join())
+            .await
+            .unwrap()
+            .unwrap();
+
+        match key.as_str() {
+            // Second Alice MUST see Alice join
+            "sockets:alice" => {
+                assert_eq!(current, None);
+
+                let joined_metas = joined.metas;
+
+                match joined_metas.len() {
+                    1 => {
+                        let joined_meta = &joined_metas[0];
+                        let online_at = joined_meta.others["online_at"].clone();
+                        let join_reference = joined_meta.join_reference.clone();
+
+                        // Second Alice MAY see First Alice join
+                        if join_reference == first_alice_join_reference {
+                            assert_eq!(join_reference, first_alice_join_reference);
+                            assert_eq!(&online_at, first_alice_online_at);
+
+                            // Wait for next join, which MUST be Second Alice being added
+                            let PresencesJoin {
+                                key,
+                                current,
+                                joined,
+                            } = timeout(CALL_TIMEOUT, second_alice_joins.join())
+                                .await
+                                .unwrap()
+                                .unwrap();
+
+                            assert_eq!(key, "sockets:alice");
+
+                            panic!(
+                                "{:?}",
+                                PresencesJoin {
+                                    key,
+                                    current,
+                                    joined
+                                }
+                            );
+                        }
+                        // Second Alice doesn't see First Alice join, but only herself
+                        else {
+                            break (join_reference, online_at);
+                        }
+                    }
+                    // Second Alice see First Alice and Second Alice join at the same time
+                    2 => {
+                        let first_joined_meta = &joined_metas[0];
+                        assert_eq!(first_joined_meta.join_reference, first_alice_join_reference);
+                        assert_eq!(
+                            &first_joined_meta.others["online_at"],
+                            first_alice_online_at
+                        );
+
+                        let second_joined_meta = &joined_metas[1];
+                        let second_alice_join_reference =
+                            second_joined_meta.join_reference.to_owned();
+                        let second_alice_online_at = second_joined_meta.others["online_at"].clone();
+
+                        break (second_alice_join_reference, second_alice_online_at);
+                    }
+                    unknown_count => panic!("Too many ({}) Alices!", unknown_count),
+                }
+            }
+            // Second Alice MAY see Bob join
+            "sockets:bob" => {
+                assert_eq!(current, None);
+                let metas = &joined.metas;
+                assert_eq!(metas.len(), 1);
+                let meta = &metas[0];
+                assert_eq!(meta.join_reference, bob_join_reference);
+                assert_eq!(meta.others["online_at"], bob_online_at);
+            }
+            unknown_key => panic!("Unknown key: {}", unknown_key),
+        }
+    };
+
+    // First Alice leaves
+    assert_matches!(
+        timeout(CALL_TIMEOUT, first_alice_channel.leave())
+            .await
+            .unwrap(),
+        Ok(())
+    );
+
+    // Bob sees First Alice leave
+    let PresencesLeave { key, current, left } = timeout(CALL_TIMEOUT, bob_leaves.leave())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(key, "sockets:alice");
+    let current_metas = current.metas;
+    assert_eq!(current_metas.len(), 1);
+
+    let current_meta = &current_metas[0];
+    assert_eq!(current_meta.join_reference, second_alice_join_refernece);
+    assert_eq!(current_meta.others["online_at"], second_alice_online_at);
+
+    let left_metas = left.metas;
+    assert_eq!(left_metas.len(), 1);
+
+    let left_meta = &left_metas[0];
+    assert_eq!(left_meta.join_reference, first_alice_join_reference);
+    assert_eq!(&left_meta.others["online_at"], first_alice_online_at);
+
+    // Second Alice sees First Alice leave
+    let PresencesLeave { key, current, left } = timeout(CALL_TIMEOUT, second_alice_leaves.leave())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(key, "sockets:alice");
+    let current_metas = current.metas;
+    assert_eq!(current_metas.len(), 1);
+
+    let current_meta = &current_metas[0];
+    assert_eq!(current_meta.join_reference, second_alice_join_refernece);
+    assert_eq!(current_meta.others["online_at"], second_alice_online_at);
+
+    let left_metas = left.metas;
+    assert_eq!(left_metas.len(), 1);
+
+    let left_meta = &left_metas[0];
+    assert_eq!(left_meta.join_reference, first_alice_join_reference);
+    assert_eq!(&left_meta.others["online_at"], first_alice_online_at);
+    first_alice_presences.shutdown().await?;
 
     Ok(())
 }

@@ -41,14 +41,18 @@ jobs:
   apple_simulator_integration_tests:
     runs-on: macos-14
     strategy:
+      fail-fast: false
       matrix:
         rust-target: ["aarch64-apple-ios-sim"]
         apple-target-os: [ "iOS" ]
+        build-std: [""]
         include:
           - rust-target: "aarch64-apple-tvos-sim"
             apple-target-os: "tvOS"
+            build-std: "-Zbuild-std"
           - rust-target: "aarch64-apple-watchos-sim"
             apple-target-os: "watchOS"
+            build-std: "-Zbuild-std"
 
     steps:
       - uses: actions/checkout@v4
@@ -79,12 +83,7 @@ jobs:
           os: ${{ matrix.apple-target-os }}
 
       - name: Build tests for ${{ matrix.rust-target }}
-        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
-        run: cargo -Zbuild-std test --target ${{ matrix.rust-target }} --no-run
-
-      - name: Build tests for ${{ matrix.rust-target }}
-        if: ${{ matrix.apple-target-os == 'iOS' }}
-        run: cargo test --target ${{ matrix.rust-target }} --no-run
+        run: cargo ${{ matrix.build-std }} test --target ${{ matrix.rust-target }} --no-run
 
       - name: Dinghy devices and platforms for ${{ matrix.rust-target }}
         env:
@@ -96,23 +95,25 @@ jobs:
       - name: Test for for ${{ matrix.rust-target }}
         env:
           DINGHY_LOG: debug
+          SIMCTL_CHILD_RUST_LOG: trace
+          SIMCTL_CHILD_RUST_BACKTRACE: full
         timeout-minutes: 30
-        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
         run: |
-          cargo -Zbuild-std test --target ${{ matrix.rust-target }}
-
-      - name: Test for for ${{ matrix.rust-target }}
-        env:
-          DINGHY_LOG: debug
-        timeout-minutes: 30
-        if: ${{ matrix.apple-target-os == 'iOS' }}
-        run: |
-          cargo test --target ${{ matrix.rust-target }}
+          cargo ${{ matrix.build-std }} test --target ${{ matrix.rust-target }} -- -- --nocapture
 
       - name: Build phoenix_channel_clients with tls
-        if: ${{ matrix.apple-target-os == 'tvOS' || matrix.apple-target-os == 'watchOS' }}
         run:
-          cargo build -Zbuild-std --target ${{ matrix.rust-target }} --features native-tls
+          cargo build ${{ matrix.build-std }} --target ${{ matrix.rust-target }} --features native-tls 
+
+      - name: Phx server logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-${{ matrix.rust-target }}
+          path: |
+            tests/support/test_server/server.stdout.txt
+            tests/support/test_server/server.stderr.txt
+            /Users/runner/Library/Developer/CoreSimulator/Devices/*/data/Containers/Bundle/Application/*/Dinghy.app/stdout
 
   uniffi-check:
     runs-on: macos-14
