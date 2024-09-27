@@ -93,7 +93,6 @@ jobs:
 
       - name: Test for for ${{ matrix.rust-target }}
         env:
-          DINGHY_LOG: debug
           SIMCTL_CHILD_RUST_LOG: trace
           SIMCTL_CHILD_RUST_BACKTRACE: full
         timeout-minutes: 30
