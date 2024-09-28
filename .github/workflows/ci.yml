@@ -44,7 +44,7 @@ jobs:
         run: cargo clippy -- -Dwarnings
 
   apple_simulator_integration_tests:
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
@@ -121,7 +121,7 @@ jobs:
             /Users/runner/Library/Developer/CoreSimulator/Devices/*/data/Containers/Bundle/Application/*/Dinghy.app/stdout
 
   uniffi-check:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -147,7 +147,7 @@ jobs:
 
   integration_tests:
     # rust cross-compilation
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4

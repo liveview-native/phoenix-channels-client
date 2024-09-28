@@ -3,14 +3,6 @@ description: 'An action for setting up the test server'
 runs:
   using: "composite"
   steps:
-    - name: Cache mix dependencies and build
-      uses: actions/cache@v4
-      id: mix-cache
-      with:
-        path: |
-          tests/support/test_server/_build/
-          tests/support/test_server/deps/
-        key: mix-${{ github.workflow }}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
 
     - name: Set up Elixir
       if: ${{ runner.os == 'macOS' }}
@@ -23,16 +15,24 @@ runs:
         elixir-version:  1.15
         otp-version: 25
 
-    - name: Install hex, rebar3
-      shell: bash
-      run: |
-        mix local.hex --force
-        mix local.rebar --force
+    - name: Cache mix dependencies and build
+      uses: actions/cache@v4
+      id: mix-cache
+      with:
+        path: |
+          tests/support/test_server/deps/
+          tests/support/test_server/_build/
+        key: mix-${{ github.workflow }}-${{ runner.os }}-${{runner.arch}}-${{ hashFiles('**/mix.lock') }}
 
-    - name: Install test server dependencies, compile and run in background
+    - run: mix deps.get
+      working-directory: ./tests/support/test_server
+      shell: bash
+
+    - run: mix compile
+      working-directory: ./tests/support/test_server
+      shell: bash
+
+    - name: Run in background
       shell: bash
       working-directory: ./tests/support/test_server
-      run: |
-        mix deps.get
-        mix compile
-        mix phx.server &
+      run: mix phx.server > server.stdout.txt 2> server.stderr.txt & disown
