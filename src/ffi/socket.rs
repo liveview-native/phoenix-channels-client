@@ -64,7 +64,7 @@
 //!
 //! If the server uses authentication for individual sockets it is important to
 //! [monitor the status of the socket](Socket::statuses), to be notified when the [Url] params are
-//! no longer valif to authenticate to the socket and a new [Socket] with the new authentication
+//! no longer valid to authenticate to the socket and a new [Socket] with the new authentication
 //! params should be [create](Socket::spawn).
 //!
 //!```rust,no_run
