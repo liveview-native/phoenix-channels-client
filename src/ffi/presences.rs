@@ -182,7 +182,7 @@ pub struct PresencesJoin {
     /// The key used to group multiple [Presence] together, such as the user name when tracking all connection one
     /// user has to the same chat room, such as from multiple devices or multiple browser tabs.
     pub key: String,
-    /// The `key`'s [Presence] before this join occured.
+    /// The `key`'s [Presence] before this join occurred.
     pub current: Option<Presence>,
     /// The `key`'s updated [Presence] due to this join.
     pub joined: Presence,
@@ -245,7 +245,7 @@ pub struct PresencesLeave {
     /// The key used to group multiple [Presence] together, such as the user name when tracking all connection one
     /// user has to the same chat room, such as from multiple devices or multiple browser tabs.
     pub key: String,
-    /// The `key`'s [Presence] before this leave occured.
+    /// The `key`'s [Presence] before this leave occurred.
     pub current: Presence,
     /// The `key`'s updated [Presence] due to this leave.
     pub left: Presence,

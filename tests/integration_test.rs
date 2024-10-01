@@ -1046,7 +1046,7 @@ async fn phoenix_presence() -> Result<(), PhoenixError> {
     );
 
     // Second Alice
-    let (second_alice_join_refernece, second_alice_online_at) = loop {
+    let (second_alice_join_reference, second_alice_online_at) = loop {
         let PresencesJoin {
             key,
             current,
@@ -1151,7 +1151,7 @@ async fn phoenix_presence() -> Result<(), PhoenixError> {
     assert_eq!(current_metas.len(), 1);
 
     let current_meta = &current_metas[0];
-    assert_eq!(current_meta.join_reference, second_alice_join_refernece);
+    assert_eq!(current_meta.join_reference, second_alice_join_reference);
     assert_eq!(current_meta.others["online_at"], second_alice_online_at);
 
     let left_metas = left.metas;
@@ -1172,7 +1172,7 @@ async fn phoenix_presence() -> Result<(), PhoenixError> {
     assert_eq!(current_metas.len(), 1);
 
     let current_meta = &current_metas[0];
-    assert_eq!(current_meta.join_reference, second_alice_join_refernece);
+    assert_eq!(current_meta.join_reference, second_alice_join_reference);
     assert_eq!(current_meta.others["online_at"], second_alice_online_at);
 
     let left_metas = left.metas;
@@ -1377,7 +1377,7 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
 const CALL_TIMEOUT: Duration = Duration::from_secs(25);
 
 fn json_payload() -> Payload {
-    Payload::json_from_serialized(json!({ "status": "testng", "num": 1i64 }).to_string()).unwrap()
+    Payload::json_from_serialized(json!({ "status": "testing", "num": 1i64 }).to_string()).unwrap()
 }
 
 fn binary_payload() -> Payload {

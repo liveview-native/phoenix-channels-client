@@ -43,6 +43,22 @@ jobs:
       - name: Cargo fmt
         run: cargo clippy -- -Dwarnings
 
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: typos-cli
+      - name: run typos
+        run: typos
+      - name: Typos info
+        if: failure()
+        run: |
+          echo 'To fix typos, please run `typos -w`'
+          echo 'To check for a diff, run `typos`'
+          echo 'You can find typos here: https://crates.io/crates/typos'
+
   apple_simulator_integration_tests:
     runs-on: macos-15
     strategy:
@@ -104,7 +120,7 @@ jobs:
           SIMCTL_CHILD_RUST_BACKTRACE: full
         timeout-minutes: 30
         run: |
-          cargo ${{ matrix.build-std }} test --target ${{ matrix.rust-target }} -- -- --test-threads 1 
+          cargo ${{ matrix.build-std }} test --target ${{ matrix.rust-target }} -- -- --test-threads 1
 
       - name: Build phoenix_channel_clients with tls
         run:
