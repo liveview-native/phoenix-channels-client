@@ -22,9 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
           components: rustfmt
 
       - name: Cargo fmt
@@ -35,9 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
           components: clippy
 
       - name: Cargo fmt
@@ -65,7 +63,7 @@ jobs:
       fail-fast: false
       matrix:
         rust-target: ["aarch64-apple-ios-sim"]
-        apple-target-os: [ "iOS" ]
+        apple-target-os: ["iOS"]
         build-std: [""]
         include:
           - rust-target: "aarch64-apple-tvos-sim"
@@ -79,9 +77,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./tests/support/test_server/
 
+      # needs nightly for now as some ios targets require -Zbuild-std
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
+          toolchain: "nightly"
           components: rust-src
           targets: aarch64-apple-ios-sim
 
@@ -123,8 +122,7 @@ jobs:
           cargo ${{ matrix.build-std }} test --target ${{ matrix.rust-target }} -- -- --test-threads 1
 
       - name: Build phoenix_channel_clients with tls
-        run:
-          cargo build ${{ matrix.build-std }} --target ${{ matrix.rust-target }} --features native-tls
+        run: cargo build ${{ matrix.build-std }} --target ${{ matrix.rust-target }} --features native-tls
 
       - name: Phx server logs
         if: ${{ failure() }}
@@ -140,9 +138,7 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.TOOLCHAIN }}
+      - uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -168,9 +164,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./tests/support/test_server/
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.TOOLCHAIN }}
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -207,9 +201,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./tests/support/test_server/
       - name: Install Rust Nightly
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
           target: x86_64-linux-android
 
       - name: Cache Cargo
@@ -229,7 +222,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: 17
-          distribution: 'temurin'
+          distribution: "temurin"
 
       - name: Enable KVM
         run: |
