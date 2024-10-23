@@ -139,10 +139,14 @@ impl PresenceByKey {
         join_tx: &broadcast::Sender<Arc<Join>>,
         leave_tx: &broadcast::Sender<Arc<Leave>>,
     ) {
-        let mut left_presence_by_key: HashMap<String, Presence> = self
-            .0
-            .extract_if(|key, _presence| !new.0.contains_key(key))
-            .collect();
+        let temp_self = std::mem::take(&mut self.0);
+
+        let (mut left_presence_by_key, new_self): (HashMap<_, _>, _) = temp_self
+            .into_iter()
+            .partition(|(key, _)| !new.0.contains_key(key));
+
+        self.0 = new_self;
+
         let mut joined_presence_by_key: HashMap<String, Presence> = Default::default();
 
         for (new_key, mut new_presence) in new.0 {

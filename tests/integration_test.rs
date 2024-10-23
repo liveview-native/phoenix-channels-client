@@ -1,5 +1,4 @@
 #![cfg_attr(feature = "nightly", feature(assert_matches))]
-#![feature(async_closure)]
 
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
