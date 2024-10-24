@@ -98,7 +98,7 @@ jobs:
           tool: cargo-dinghy@0.7.1
 
       - name: Start Simulator
-        uses: futureware-tech/simulator-action@v3
+        uses: futureware-tech/simulator-action@v4
         with:
           os: ${{ matrix.apple-target-os }}
 
