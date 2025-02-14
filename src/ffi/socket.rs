@@ -422,6 +422,12 @@ impl Socket {
     }
 }
 
+impl Drop for Socket {
+    fn drop(&mut self) {
+        self.state_command_tx.try_send(StateCommand::Shutdown).ok();
+    }
+}
+
 /// The status of the [Socket].
 #[derive(Copy, Clone, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum SocketStatus {

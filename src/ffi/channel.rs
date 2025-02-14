@@ -462,6 +462,16 @@ impl Channel {
     }
 }
 
+impl Drop for Channel {
+    fn drop(&mut self) {
+        let (left_tx, _) = oneshot::channel();
+
+        self.state_command_tx
+            .try_send(StateCommand::Leave { left_tx })
+            .ok();
+    }
+}
+
 /// Errors when calling [Channel::join].
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, uniffi::Error)]
 pub enum ChannelJoinError {
