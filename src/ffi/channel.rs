@@ -475,7 +475,7 @@ impl Drop for Channel {
                 return;
             };
 
-            if let Ok(_) = sender.send(StateCommand::Leave { left_tx }).await {
+            if sender.send(StateCommand::Leave { left_tx }).await.is_ok() {
                 match left_rx.await {
                     Ok(Err(e)) => {
                         error!("Error leaving channel {topic} on drop: {e}");

@@ -433,7 +433,7 @@ impl Drop for Socket {
                 return;
             };
 
-            if let Ok(_) = sender.send(StateCommand::Shutdown).await {
+            if sender.send(StateCommand::Shutdown).await.is_ok() {
                 // the only errors still kill the connection
                 let _ = handle.await;
             } else {
