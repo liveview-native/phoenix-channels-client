@@ -190,6 +190,7 @@ use tokio::time;
 use tokio::time::error::Elapsed;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::ffi::channel::Channel;
@@ -263,6 +264,7 @@ pub struct Socket {
     status: ObservableStatus,
     state_command_tx: mpsc::Sender<StateCommand>,
     channel_spawn_tx: mpsc::Sender<ChannelSpawn>,
+    cancellation_token: CancellationToken,
     pub(crate) channel_state_command_tx: mpsc::Sender<ChannelStateCommand>,
     pub(crate) channel_send_command_tx: mpsc::Sender<ChannelSendCommand>,
     /// The join handle corresponding to the socket listener
@@ -295,6 +297,7 @@ impl Socket {
         let (state_command_tx, state_command_rx) = mpsc::channel(50);
         let (channel_state_command_tx, channel_state_command_rx) = mpsc::channel(50);
         let (channel_send_command_tx, channel_send_command_rx) = mpsc::channel(50);
+        let cancellation_token = CancellationToken::new();
         let join_handle = Listener::spawn(
             url.clone(),
             cookies.clone(),
@@ -303,6 +306,7 @@ impl Socket {
             state_command_rx,
             channel_state_command_rx,
             channel_send_command_rx,
+            cancellation_token.clone(),
         );
 
         Ok(Arc::new(Self {
@@ -313,6 +317,7 @@ impl Socket {
             channel_state_command_tx,
             channel_send_command_tx,
             join_handle: AtomicTake::new(join_handle),
+            cancellation_token,
         }))
     }
 
@@ -425,21 +430,7 @@ impl Socket {
 
 impl Drop for Socket {
     fn drop(&mut self) {
-        let sender = self.state_command_tx.clone();
-        let handle = self.join_handle.take();
-
-        tokio::spawn(async move {
-            let Some(handle) = handle else {
-                return;
-            };
-
-            if sender.send(StateCommand::Shutdown).await.is_ok() {
-                // the only errors still kill the connection
-                let _ = handle.await;
-            } else {
-                handle.abort()
-            }
-        });
+        self.cancellation_token.cancel()
     }
 }
 

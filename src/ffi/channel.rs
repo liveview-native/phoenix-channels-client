@@ -214,6 +214,7 @@ use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::error::Elapsed;
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::ffi::channel::statuses::ChannelStatuses;
 use crate::ffi::message::{Event, Payload};
@@ -294,6 +295,7 @@ pub struct Channel {
     pub(crate) send_command_tx: mpsc::Sender<SendCommand>,
     /// The join handle corresponding to the channel listener
     pub(crate) join_handle: AtomicTake<JoinHandle<Result<(), ChannelShutdownError>>>,
+    pub(crate) cancellation_token: CancellationToken,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -464,32 +466,7 @@ impl Channel {
 
 impl Drop for Channel {
     fn drop(&mut self) {
-        let sender = self.state_command_tx.clone();
-        let handle = self.join_handle.take();
-        let topic = self.topic.to_string();
-
-        tokio::spawn(async move {
-            let (left_tx, left_rx) = oneshot::channel();
-
-            let Some(handle) = handle else {
-                return;
-            };
-
-            if sender.send(StateCommand::Leave { left_tx }).await.is_ok() {
-                match left_rx.await {
-                    Ok(Err(e)) => {
-                        error!("Error leaving channel {topic} on drop: {e}");
-                    }
-                    Err(_) => {}
-                    _ => {}
-                };
-
-                // the only errors are if the task is aslready shut down
-                let _ = handle.await;
-            } else {
-                handle.abort()
-            }
-        });
+        self.cancellation_token.cancel()
     }
 }
 

@@ -9,6 +9,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, Sleep};
 use tokio_tungstenite::tungstenite;
+use tokio_util::sync::CancellationToken;
 
 use crate::ffi::channel::ChannelShutdownError;
 use crate::ffi::message::PhoenixEvent;
@@ -32,6 +33,7 @@ pub(crate) struct Listener {
     state: Option<State>,
     send_command_rx: mpsc::Receiver<SendCommand>,
     join_reference: JoinReference,
+    cancellation_token: CancellationToken,
 }
 impl Listener {
     #[allow(clippy::too_many_arguments)]
@@ -46,6 +48,7 @@ impl Listener {
         event_payload_tx: broadcast::Sender<EventPayload>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         send_command_rx: mpsc::Receiver<SendCommand>,
+        token: CancellationToken,
     ) -> JoinHandle<Result<(), ChannelShutdownError>> {
         let listener = Self::init(
             socket,
@@ -58,6 +61,7 @@ impl Listener {
             event_payload_tx,
             state_command_rx,
             send_command_rx,
+            token,
         );
 
         tokio::spawn(listener.listen())
@@ -75,6 +79,7 @@ impl Listener {
         event_payload_tx: broadcast::Sender<EventPayload>,
         state_command_rx: mpsc::Receiver<StateCommand>,
         send_command_rx: mpsc::Receiver<SendCommand>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             socket,
@@ -88,6 +93,7 @@ impl Listener {
             state_command_rx,
             send_command_rx,
             join_reference: JoinReference::default(),
+            cancellation_token,
         }
     }
 
@@ -106,6 +112,7 @@ impl Listener {
                     biased;
 
                     _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    _ = self.cancellation_token.cancelled() => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
                     else => break Ok(())
                 },
@@ -113,6 +120,7 @@ impl Listener {
                     biased;
 
                     _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    _ = self.cancellation_token.cancelled() => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await?,
                     else => break Ok(())
@@ -121,6 +129,7 @@ impl Listener {
                     biased;
 
                     _ = &mut self.shutdown_rx => State::Joining(joining).shutdown(),
+                    _ = self.cancellation_token.cancelled() => self.update_state(State::Joining(joining), StateCommand::Leave { left_tx: oneshot::channel().0 }).await?,
                     socket_joined_result = &mut joining.socket_joined_rx => self.joined_result_result_received(joining, socket_joined_result).await?,
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(State::Joining(joining), state_command).await?,
                     else => break Ok(())
@@ -132,6 +141,7 @@ impl Listener {
                     biased;
 
                     _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    _ = self.cancellation_token.cancelled() => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
                     () = sleep => self.rejoin(current_state, rejoin).await?,
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await?,
@@ -145,6 +155,7 @@ impl Listener {
                         biased;
 
                         _ = &mut self.shutdown_rx => State::Joined(joined).shutdown(),
+                        _ = self.cancellation_token.cancelled() => self.update_state(State::Joined(joined), StateCommand::Leave { left_tx: oneshot::channel().0 }).await?,
                         Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => State::Joined(joined).connectivity_changed(socket_connectivity),
                         Ok(()) = &mut joined.left_rx => State::Left,
                         Some(state_command) = self.state_command_rx.recv() => self.update_state(State::Joined(joined), state_command).await?,
@@ -161,6 +172,7 @@ impl Listener {
                     biased;
 
                     _ = &mut self.shutdown_rx => State::Leaving(leaving).shutdown(),
+                    _ = self.cancellation_token.cancelled() => State::Leaving(leaving).shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => State::Leaving(leaving).connectivity_changed(socket_connectivity),
                     Ok(left_result) = &mut leaving.socket_left_rx => leaving.left(left_result),
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(State::Leaving(leaving), state_command).await?,
@@ -170,6 +182,7 @@ impl Listener {
                     biased;
 
                     _ = &mut self.shutdown_rx => current_state.shutdown(),
+                    _ = self.cancellation_token.cancelled() => current_state.shutdown(),
                     Ok(socket_connectivity) = self.socket_connectivity_rx.recv() => current_state.connectivity_changed(socket_connectivity),
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await?,
                     else => break Ok(())

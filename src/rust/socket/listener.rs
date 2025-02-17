@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::{Instant, Interval, Sleep};
 use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::ffi::channel::Channel;
@@ -45,6 +46,7 @@ pub(crate) struct Listener {
     connectivity_tx: broadcast::Sender<Connectivity>,
     state: Option<State>,
     socket_status: ObservableStatus,
+    cancellation_token: CancellationToken,
 }
 impl Listener {
     pub(crate) fn spawn(
@@ -55,6 +57,7 @@ impl Listener {
         state_command_rx: mpsc::Receiver<StateCommand>,
         channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
         channel_send_command_rx: mpsc::Receiver<ChannelSendCommand>,
+        cancellation_token: CancellationToken,
     ) -> JoinHandle<Result<(), ShutdownError>> {
         let listener = Self::init(
             url,
@@ -64,6 +67,7 @@ impl Listener {
             state_command_rx,
             channel_state_command_rx,
             channel_send_command_rx,
+            cancellation_token,
         );
 
         tokio::spawn(listener.listen())
@@ -77,6 +81,7 @@ impl Listener {
         state_command_rx: mpsc::Receiver<StateCommand>,
         channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
         channel_send_command_rx: mpsc::Receiver<ChannelSendCommand>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         let (connectivity_tx, _) = broadcast::channel(1);
 
@@ -90,6 +95,7 @@ impl Listener {
             channel_send_command_rx,
             connectivity_tx,
             state: Some(State::NeverConnected),
+            cancellation_token,
         }
     }
 
@@ -104,6 +110,7 @@ impl Listener {
                 State::NeverConnected { .. } | State::Disconnected { .. } => tokio::select! {
                     Some(channel_spawn) = self.channel_spawn_rx.recv() => self.spawn_channel(current_state, channel_spawn).await,
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await,
+                    _ = self.cancellation_token.cancelled() => self.update_state(current_state, StateCommand::Disconnect { disconnected_tx: oneshot::channel().0 }).await,
                     else => break Ok(())
                 },
                 State::Connected(mut connected) => tokio::select! {
@@ -117,6 +124,7 @@ impl Listener {
 
                         State::Connected(connected)
                     },
+                    _ = self.cancellation_token.cancelled() => self.update_state(State::Connected(connected), StateCommand::Disconnect { disconnected_tx: oneshot::channel().0 }).await,
                     _ = connected.heartbeat.tick() => self.heartbeat(connected).await,
                     else => break Ok(())
                 },
@@ -127,6 +135,7 @@ impl Listener {
                     () = sleep => self.reconnect(reconnect).await,
                     Some(channel_spawn) = self.channel_spawn_rx.recv() => self.spawn_channel(current_state, channel_spawn).await,
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await,
+                    _ = self.cancellation_token.cancelled() => self.update_state(current_state, StateCommand::Shutdown).await,
                     else => break Ok(())
                 },
                 State::ShuttingDown | State::ShutDown => break Ok(()),

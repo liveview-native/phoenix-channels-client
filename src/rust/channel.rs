@@ -3,6 +3,7 @@ pub(crate) mod listener;
 use atomic_take::AtomicTake;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 use log::error;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -36,6 +37,7 @@ impl Channel {
         let (event_payload_tx, _) = broadcast::channel(10);
         let (state_command_tx, state_command_rx) = mpsc::channel(10);
         let (send_command_tx, send_command_rx) = mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
         let join_handle = Listener::spawn(
             socket,
             socket_connectivity_rx,
@@ -47,6 +49,7 @@ impl Channel {
             event_payload_tx.clone(),
             state_command_rx,
             send_command_rx,
+            cancellation_token.clone(),
         );
 
         Self {
@@ -58,6 +61,7 @@ impl Channel {
             state_command_tx,
             send_command_tx,
             join_handle: AtomicTake::new(join_handle),
+            cancellation_token,
         }
     }
 }
