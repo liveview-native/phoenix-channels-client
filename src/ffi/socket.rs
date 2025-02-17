@@ -181,6 +181,7 @@
 //! # }
 
 use atomic_take::AtomicTake;
+use log::error;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
@@ -419,6 +420,26 @@ impl Socket {
             },
             Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
         }
+    }
+}
+
+impl Drop for Socket {
+    fn drop(&mut self) {
+        let sender = self.state_command_tx.clone();
+        let handle = self.join_handle.take();
+
+        tokio::spawn(async move {
+            let Some(handle) = handle else {
+                return;
+            };
+
+            if sender.send(StateCommand::Shutdown).await.is_ok() {
+                // the only errors still kill the connection
+                let _ = handle.await;
+            } else {
+                handle.abort()
+            }
+        });
     }
 }
 
