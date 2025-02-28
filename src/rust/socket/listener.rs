@@ -1154,15 +1154,14 @@ impl Reconnect {
     }
 
     fn sleep_duration(&self) -> Duration {
-        self.connect_timeout * self.sleep_duration_multiplier()
+        let ms =
+            Self::SLEEP_DURATIONS[(self.attempts as usize).min(Self::SLEEP_DURATIONS.len() - 1)];
+
+        std::time::Duration::from_millis(ms)
     }
 
-    fn sleep_duration_multiplier(&self) -> u32 {
-        Self::SLEEP_DURATION_MULTIPLIERS
-            [(self.attempts as usize).min(Self::SLEEP_DURATION_MULTIPLIERS.len() - 1)]
-    }
-
-    const SLEEP_DURATION_MULTIPLIERS: &'static [u32] = &[0, 1, 2, 5, 10];
+    // The exact retry pattern from liveview
+    const SLEEP_DURATIONS: &[u64] = &[10, 50, 100, 150, 200, 250, 500, 1000, 2000, 5000];
 }
 
 struct JoinKey {

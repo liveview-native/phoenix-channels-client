@@ -272,6 +272,7 @@ pub struct Socket {
 #[uniffi::export(async_runtime = "tokio")]
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
+    /// This object must be [Socket::shutdown] at the end of it's lifespan.
     #[uniffi::constructor]
     pub async fn spawn(
         mut url: Url,
