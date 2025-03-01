@@ -606,9 +606,9 @@ pub(crate) enum State {
     /// reconnect.
     WaitingForSocketToConnect {
         /// * [None] - [super::Channel] will wait until [super::Channel::join] after [Socket]
-        ///            connects to join [super::Channel::topic] with [super::Channel::payload].
+        ///  connects to join [super::Channel::topic] with [super::Channel::payload].
         /// * [Some] - [super::Channel] will rejoin [super::Channel::topic] with
-        ///            [super::Channel::payload] as soon as [Socket] reconnects.
+        ///  [super::Channel::payload] as soon as [Socket] reconnects.
         rejoin: Option<Rejoin>,
     },
     /// [Socket::status] is [crate::socket::Status::Connected] and [super::Channel] is waiting for
