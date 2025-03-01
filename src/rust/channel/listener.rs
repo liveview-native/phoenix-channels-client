@@ -219,7 +219,7 @@ impl Listener {
     ) -> Result<State, ChannelShutdownError> {
         match state {
             State::WaitingForSocketToConnect { .. } => unreachable!(),
-            State::WaitingToJoin { .. } | State::Leaving { .. } | State::Left { .. } => {
+            State::WaitingToJoin | State::Leaving { .. } | State::Left => {
                 self.socket_join_if_not_timed_out(state, created_at, timeout, channel_joined_tx)
                     .await
             }
@@ -392,10 +392,10 @@ impl Listener {
     ) -> ChannelShutdownError {
         match state {
             State::WaitingForSocketToConnect { .. }
-            | State::WaitingToJoin { .. }
+            | State::WaitingToJoin
             | State::WaitingToRejoin { .. }
             | State::Joined { .. }
-            | State::Left { .. }
+            | State::Left
             | State::ShuttingDown
             | State::ShutDown => {}
             State::Joining(Joining {
@@ -442,8 +442,8 @@ impl Listener {
     ) -> State {
         match state {
             State::WaitingForSocketToConnect { .. }
-            | State::WaitingToJoin { .. }
-            | State::Left { .. }
+            | State::WaitingToJoin
+            | State::Left
             | State::ShuttingDown
             | State::ShutDown => {
                 left_tx.send(Ok(())).ok();
@@ -758,10 +758,10 @@ impl State {
     fn shutdown(self) -> Self {
         match self {
             State::WaitingForSocketToConnect { .. }
-            | State::WaitingToJoin { .. }
+            | State::WaitingToJoin
             | State::WaitingToRejoin { .. }
             | State::Joined(_)
-            | State::Left { .. }
+            | State::Left
             | State::ShuttingDown
             | State::ShutDown => (),
             State::Joining(Joining {
@@ -821,7 +821,7 @@ impl Debug for State {
                 .finish(),
             State::Joined(joined) => f.debug_tuple("Joined").field(joined).finish(),
             State::Leaving { .. } => f.debug_struct("Leaving").finish_non_exhaustive(),
-            State::Left { .. } => f.write_str("Left"),
+            State::Left => f.write_str("Left"),
             State::ShuttingDown => f.write_str("ShuttingDown"),
             State::ShutDown => f.write_str("ShutDown"),
         }

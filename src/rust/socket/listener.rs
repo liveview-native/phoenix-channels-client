@@ -101,7 +101,7 @@ impl Listener {
             let current_discriminant = mem::discriminant(&current_state);
 
             let next_state = match current_state {
-                State::NeverConnected { .. } | State::Disconnected { .. } => tokio::select! {
+                State::NeverConnected | State::Disconnected => tokio::select! {
                     Some(channel_spawn) = self.channel_spawn_rx.recv() => self.spawn_channel(current_state, channel_spawn).await,
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await,
                     else => break Ok(())
@@ -215,9 +215,9 @@ impl Listener {
 
     async fn disconnect(&self, state: State, disconnected_tx: oneshot::Sender<()>) -> State {
         let next_state = match state {
-            State::NeverConnected { .. }
+            State::NeverConnected
             | State::WaitingToReconnect { .. }
-            | State::Disconnected { .. }
+            | State::Disconnected
             | State::ShuttingDown
             | State::ShutDown => state,
             State::Connected(mut connected) => {
@@ -767,9 +767,9 @@ impl Listener {
                 connected.socket.close(None).await.ok();
                 self.shutdown_connected(connected)
             }
-            State::NeverConnected { .. }
+            State::NeverConnected
             | State::WaitingToReconnect { .. }
-            | State::Disconnected { .. }
+            | State::Disconnected
             | State::ShuttingDown
             | State::ShutDown => State::ShuttingDown,
         }
@@ -813,8 +813,8 @@ impl State {
 impl Debug for State {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            State::NeverConnected { .. } => write!(f, "NeverConnected"),
-            State::Disconnected { .. } => write!(f, "Disconnected"),
+            State::NeverConnected => write!(f, "NeverConnected"),
+            State::Disconnected => write!(f, "Disconnected"),
             State::ShuttingDown => write!(f, "ShuttingDown"),
             State::Connected(connected) => f.debug_tuple("Connected").field(connected).finish(),
             State::WaitingToReconnect {

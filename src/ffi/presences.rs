@@ -80,14 +80,12 @@ impl Presences {
                 Err(_) => self
                     .listener_shutdown()
                     .await
-                    .map(|_| vec![])
-                    .map_err(From::from),
+                    .map(|_| vec![]),
             },
             Err(_) => self
                 .listener_shutdown()
                 .await
-                .map(|_| vec![])
-                .map_err(From::from),
+                .map(|_| vec![]),
         }
     }
 
