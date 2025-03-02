@@ -922,9 +922,9 @@ pub(crate) struct JoinedChannelReceivers {
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Rejoin {
     join_timeout: Duration,
-    /// Enough for > 1 week of attempts; u8 would only be 42 minutes of attempts.
     attempts: u16,
 }
+
 impl Rejoin {
     fn wait(self) -> State {
         State::WaitingToRejoin {
@@ -941,14 +941,15 @@ impl Rejoin {
     }
 
     fn sleep_duration(&self) -> Duration {
-        let ms =
-            Self::SLEEP_DURATIONS[(self.attempts as usize).min(Self::SLEEP_DURATIONS.len() - 1)];
-
-        std::time::Duration::from_millis(ms)
+        self.join_timeout * self.sleep_duration_multiplier()
     }
 
-    // The exact retry pattern from liveview
-    const SLEEP_DURATIONS: &[u64] = &[1000, 2000, 5000];
+    fn sleep_duration_multiplier(&self) -> u32 {
+        Self::SLEEP_DURATION_MULTIPLIERS
+            [(self.attempts as usize).min(Self::SLEEP_DURATION_MULTIPLIERS.len() - 1)]
+    }
+
+    const SLEEP_DURATION_MULTIPLIERS: &'static [u32] = &[0, 1, 2, 5, 10];
 }
 
 pub(crate) struct Joining {

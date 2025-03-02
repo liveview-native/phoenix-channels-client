@@ -670,11 +670,11 @@ impl Listener {
                 // Use strategy if available, otherwise emulate
                 // behavior of the JS client.
                 Some(strat) => {
+                    let duration = strat.sleep_duration(reconnect.attempts as u64);
                     let reconnect = reconnect.next();
+
                     State::WaitingToReconnect {
-                        sleep: Box::pin(time::sleep(
-                            strat.sleep_duration(reconnect.attempts as u64),
-                        )),
+                        sleep: Box::pin(time::sleep(duration)),
                         reconnect,
                     }
                 }
@@ -1142,8 +1142,9 @@ impl Debug for Connected {
 
 #[derive(Copy, Clone, Debug)]
 struct Reconnect {
+    /// Constant base duration configured by user.
     connect_timeout: Duration,
-    /// Enough for > 1 week of attempts; u8 would only be 42 minutes of attempts.
+    /// Current attempt
     attempts: u16,
 }
 impl Reconnect {
@@ -1162,14 +1163,15 @@ impl Reconnect {
     }
 
     fn sleep_duration(&self) -> Duration {
-        let ms =
-            Self::SLEEP_DURATIONS[(self.attempts as usize).min(Self::SLEEP_DURATIONS.len() - 1)];
-
-        std::time::Duration::from_millis(ms)
+        self.connect_timeout * self.sleep_duration_multiplier()
     }
 
-    // The exact retry pattern from liveview
-    const SLEEP_DURATIONS: &[u64] = &[0, 10, 50, 100, 150, 200, 250, 500, 1000, 2000, 5000];
+    fn sleep_duration_multiplier(&self) -> u32 {
+        Self::SLEEP_DURATION_MULTIPLIERS
+            [(self.attempts as usize).min(Self::SLEEP_DURATION_MULTIPLIERS.len() - 1)]
+    }
+
+    const SLEEP_DURATION_MULTIPLIERS: &'static [u32] = &[0, 1, 2, 5, 10];
 }
 
 struct JoinKey {
