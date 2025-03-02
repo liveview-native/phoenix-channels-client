@@ -8,10 +8,27 @@ defmodule TestServer.Channel do
   alias Phoenix.Socket
   alias TestServer.Presence
 
-  intercept ~w(deauthorized)
+  intercept(~w(deauthorized))
 
   def join("channel:error:" <> _, payload, _socket) do
     {:error, payload}
+  end
+
+  def join("channel:reconnect_test", _, socket) do
+    {:ok, socket}
+  end
+
+  def handle_in(
+        "force_socket_reconnect_failure",
+        _payload,
+        %Phoenix.Socket{assigns: %{id: id}} = socket
+      ) do
+    failures = Application.get_env(:test_server, :socket_reconnect_failures, %{})
+    updated_failures = Map.put(failures, id, true)
+    Application.put_env(:test_server, :socket_reconnect_failures, updated_failures)
+
+    Process.exit(socket.transport_pid, :kill)
+    {:noreply, socket}
   end
 
   def join("channel:presence", _, socket) do
@@ -61,6 +78,7 @@ defmodule TestServer.Channel do
       :ok ->
         Logger.info("secret #{secret} deleted for id #{id}")
         {:reply, :ok, socket}
+
       :error ->
         Logger.info("secret #{secret} does not match for id #{id}")
         {:reply, :error, socket}
@@ -116,7 +134,11 @@ defmodule TestServer.Channel do
     {:noreply, socket}
   end
 
-  def handle_out("deauthorized" = event, %{"id" => deauthorized_id}, %Socket{id: "sockets:" <> id} = socket) do
+  def handle_out(
+        "deauthorized" = event,
+        %{"id" => deauthorized_id},
+        %Socket{id: "sockets:" <> id} = socket
+      ) do
     if deauthorized_id == id do
       {:stop, {:shutdown, :unauthorized}, socket}
     else

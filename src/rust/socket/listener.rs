@@ -191,7 +191,19 @@ impl Listener {
                     .await
                 {
                     Ok(state) => (Ok(()), state),
-                    Err((connect_error, reconnect)) => (Err(connect_error), reconnect.wait()),
+                    Err((connect_error, reconnect)) => match self.reconnect_strategy.as_ref() {
+                        Some(strategy) => {
+                            let duration = strategy.sleep_duration(reconnect.attempts as u64);
+                            let reconnect = reconnect.next();
+
+                            let state = State::WaitingToReconnect {
+                                sleep: Box::pin(time::sleep(duration)),
+                                reconnect,
+                            };
+                            (Err(connect_error), state)
+                        }
+                        None => (Err(connect_error), reconnect.wait()),
+                    },
                 }
             }
             State::WaitingToReconnect { ref sleep, .. } => (

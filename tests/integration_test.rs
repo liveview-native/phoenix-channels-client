@@ -2,7 +2,7 @@
 
 #[cfg(feature = "nightly")]
 use std::assert_matches::assert_matches;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use log::debug;
@@ -17,7 +17,8 @@ use uuid::Uuid;
 use phoenix_channels_client::{
     CallError, ChannelJoinError, ChannelStatus, ChannelStatusJoinError, ChannelStatuses,
     ConnectError, Event, EventPayload, IoError, Payload, PhoenixError, PresencesJoin,
-    PresencesLeave, Socket, SocketStatus, StatusesError, Topic, WebSocketError, JSON,
+    PresencesLeave, ReconnectStrategy, Socket, SocketStatus, StatusesError, Topic, WebSocketError,
+    JSON,
 };
 
 #[cfg(not(feature = "nightly"))]
@@ -891,6 +892,96 @@ async fn phoenix_channels_cast_error_test(
         .await;
 
     assert_matches!(result, Ok(()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn phoenix_channels_reconnect_strategy_test() -> Result<(), PhoenixError> {
+    let _ = env_logger::builder()
+        .parse_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .is_test(true)
+        .try_init();
+
+    struct TestReconnectStrategy {
+        was_called: Arc<Mutex<bool>>,
+    }
+
+    impl ReconnectStrategy for TestReconnectStrategy {
+        fn sleep_duration(&self, _attempt: u64) -> Duration {
+            let mut called = self.was_called.lock().unwrap();
+            *called = true;
+            Duration::from_millis(100)
+        }
+    }
+
+    let was_called = Arc::new(Mutex::new(false));
+    let strategy = TestReconnectStrategy {
+        was_called: was_called.clone(),
+    };
+
+    let id = id();
+    let url = shared_secret_url(id);
+    let socket = Socket::spawn(url, None, Some(Box::new(strategy))).await?;
+    socket.connect(CONNECT_TIMEOUT).await?;
+    let statuses = socket.statuses();
+
+    let channel = socket
+        .channel(
+            Topic::from_string("channel:reconnect_test".to_string()),
+            None,
+        )
+        .await?;
+
+    channel.join(JOIN_TIMEOUT).await?;
+
+    match channel
+        .call(
+            Event::from_string("force_socket_reconnect_failure".to_string()),
+            Payload::json_from_serialized(json!({}).to_string()).unwrap(),
+            CALL_TIMEOUT,
+        )
+        .await
+    {
+        Err(CallError::SocketDisconnected) => (),
+        other => panic!("Expected SocketDisconnected, got {:?}", other),
+    }
+
+    assert_matches!(
+        timeout(CALL_TIMEOUT + JOIN_TIMEOUT, statuses.status())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(SocketStatus::WaitingToReconnect { .. })
+    );
+
+    assert_matches!(
+        timeout(CONNECT_TIMEOUT, statuses.status())
+            .await
+            .unwrap()
+            .unwrap(),
+        Err(_)
+    );
+
+    assert_matches!(
+        timeout(CALL_TIMEOUT + JOIN_TIMEOUT, statuses.status())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(SocketStatus::WaitingToReconnect { .. })
+    );
+
+    assert_matches!(
+        timeout(CONNECT_TIMEOUT, statuses.status())
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(SocketStatus::Connected)
+    );
+
+    let called = *was_called.lock().unwrap();
+    assert!(called, "ReconnectStrategy should have been called");
 
     Ok(())
 }

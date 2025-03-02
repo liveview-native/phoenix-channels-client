@@ -22,7 +22,8 @@ pub use ffi::presences::{
     Presences, PresencesJoin, PresencesJoins, PresencesLeave, PresencesLeaves,
 };
 pub use ffi::socket::{
-    ConnectError, Socket, SocketChannelError, SocketError, SocketStatus, SocketStatuses, SpawnError,
+    ConnectError, ReconnectStrategy, Socket, SocketChannelError, SocketError, SocketStatus,
+    SocketStatuses, SpawnError,
 };
 pub use ffi::topic::Topic;
 pub use ffi::web_socket::error::WebSocketError;
