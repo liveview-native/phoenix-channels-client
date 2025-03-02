@@ -44,7 +44,7 @@ async fn socket_status() -> Result<(), PhoenixError> {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = Socket::spawn(url, None).await?;
+    let socket = Socket::spawn(url, None, None).await?;
 
     let status = socket.status();
     assert_eq!(status, SocketStatus::NeverConnected);
@@ -74,7 +74,7 @@ async fn socket_statuses() -> Result<(), PhoenixError> {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = Socket::spawn(url, None).await?;
+    let socket = Socket::spawn(url, None, None).await?;
 
     let statuses = socket.statuses();
 
@@ -155,7 +155,7 @@ async fn channel_status() -> Result<(), PhoenixError> {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = Socket::spawn(url, None).await?;
+    let socket = Socket::spawn(url, None, None).await?;
 
     let channel = socket
         .channel(Topic::from_string("channel:status".to_string()), None)
@@ -193,7 +193,7 @@ async fn channel_statuses() -> Result<(), PhoenixError> {
 
     let id = id();
     let url = shared_secret_url(id);
-    let socket = Socket::spawn(url, None).await?;
+    let socket = Socket::spawn(url, None, None).await?;
 
     let channel = socket
         .channel(Topic::from_string("channel:status".to_string()), None)
@@ -1298,7 +1298,7 @@ async fn assert_joined(channel_statuses: &ChannelStatuses) {
 }
 
 async fn connected_socket(url: Url) -> Result<Arc<Socket>, PhoenixError> {
-    let socket = Socket::spawn(url, None).await?;
+    let socket = Socket::spawn(url, None, None).await?;
 
     if let Err(connect_error) = socket.connect(CONNECT_TIMEOUT).await {
         match connect_error {
