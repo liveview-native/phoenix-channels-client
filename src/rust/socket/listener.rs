@@ -669,8 +669,8 @@ impl Listener {
             Err((_connect_error, reconnect)) => match self.reconnect_strategy.as_ref() {
                 // Use strategy if available, otherwise emulate
                 // behavior of the JS client.
-                Some(strat) => {
-                    let duration = strat.sleep_duration(reconnect.attempts as u64);
+                Some(strategy) => {
+                    let duration = strategy.sleep_duration(reconnect.attempts as u64);
                     let reconnect = reconnect.next();
 
                     State::WaitingToReconnect {
