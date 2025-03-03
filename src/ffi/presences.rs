@@ -77,17 +77,9 @@ impl Presences {
         match self.list_tx.send(tx).await {
             Ok(()) => match rx.await {
                 Ok(presence_vec) => Ok(presence_vec.into_iter().map(From::from).collect()),
-                Err(_) => self
-                    .listener_shutdown()
-                    .await
-                    .map(|_| vec![])
-                    .map_err(From::from),
+                Err(_) => self.listener_shutdown().await.map(|_| vec![]),
             },
-            Err(_) => self
-                .listener_shutdown()
-                .await
-                .map(|_| vec![])
-                .map_err(From::from),
+            Err(_) => self.listener_shutdown().await.map(|_| vec![]),
         }
     }
 

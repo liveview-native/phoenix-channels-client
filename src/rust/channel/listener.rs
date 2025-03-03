@@ -219,7 +219,7 @@ impl Listener {
     ) -> Result<State, ChannelShutdownError> {
         match state {
             State::WaitingForSocketToConnect { .. } => unreachable!(),
-            State::WaitingToJoin { .. } | State::Leaving { .. } | State::Left { .. } => {
+            State::WaitingToJoin | State::Leaving { .. } | State::Left => {
                 self.socket_join_if_not_timed_out(state, created_at, timeout, channel_joined_tx)
                     .await
             }
@@ -392,10 +392,10 @@ impl Listener {
     ) -> ChannelShutdownError {
         match state {
             State::WaitingForSocketToConnect { .. }
-            | State::WaitingToJoin { .. }
+            | State::WaitingToJoin
             | State::WaitingToRejoin { .. }
             | State::Joined { .. }
-            | State::Left { .. }
+            | State::Left
             | State::ShuttingDown
             | State::ShutDown => {}
             State::Joining(Joining {
@@ -442,8 +442,8 @@ impl Listener {
     ) -> State {
         match state {
             State::WaitingForSocketToConnect { .. }
-            | State::WaitingToJoin { .. }
-            | State::Left { .. }
+            | State::WaitingToJoin
+            | State::Left
             | State::ShuttingDown
             | State::ShutDown => {
                 left_tx.send(Ok(())).ok();
@@ -606,9 +606,9 @@ pub(crate) enum State {
     /// reconnect.
     WaitingForSocketToConnect {
         /// * [None] - [super::Channel] will wait until [super::Channel::join] after [Socket]
-        ///            connects to join [super::Channel::topic] with [super::Channel::payload].
+        ///   connects to join [super::Channel::topic] with [super::Channel::payload].
         /// * [Some] - [super::Channel] will rejoin [super::Channel::topic] with
-        ///            [super::Channel::payload] as soon as [Socket] reconnects.
+        ///   [super::Channel::payload] as soon as [Socket] reconnects.
         rejoin: Option<Rejoin>,
     },
     /// [Socket::status] is [crate::socket::Status::Connected] and [super::Channel] is waiting for
@@ -758,10 +758,10 @@ impl State {
     fn shutdown(self) -> Self {
         match self {
             State::WaitingForSocketToConnect { .. }
-            | State::WaitingToJoin { .. }
+            | State::WaitingToJoin
             | State::WaitingToRejoin { .. }
             | State::Joined(_)
-            | State::Left { .. }
+            | State::Left
             | State::ShuttingDown
             | State::ShutDown => (),
             State::Joining(Joining {
@@ -821,7 +821,7 @@ impl Debug for State {
                 .finish(),
             State::Joined(joined) => f.debug_tuple("Joined").field(joined).finish(),
             State::Leaving { .. } => f.debug_struct("Leaving").finish_non_exhaustive(),
-            State::Left { .. } => f.write_str("Left"),
+            State::Left => f.write_str("Left"),
             State::ShuttingDown => f.write_str("ShuttingDown"),
             State::ShutDown => f.write_str("ShutDown"),
         }
@@ -922,9 +922,9 @@ pub(crate) struct JoinedChannelReceivers {
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Rejoin {
     join_timeout: Duration,
-    /// Enough for > 1 week of attempts; u8 would only be 42 minutes of attempts.
     attempts: u16,
 }
+
 impl Rejoin {
     fn wait(self) -> State {
         State::WaitingToRejoin {

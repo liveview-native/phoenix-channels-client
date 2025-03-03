@@ -8,6 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use atomic_take::AtomicTake;
 use futures::stream::FuturesUnordered;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -15,7 +16,6 @@ use log::{debug, error, trace};
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::{Instant, Interval, Sleep};
 use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
@@ -23,7 +23,7 @@ use url::Url;
 
 use crate::ffi::channel::Channel;
 use crate::ffi::message::PhoenixEvent;
-use crate::ffi::socket::Socket;
+use crate::ffi::socket::{ReconnectStrategy, Socket};
 use crate::ffi::topic::Topic;
 use crate::rust::channel::listener::{JoinedChannelReceivers, LeaveError};
 use crate::rust::channel::CallError;
@@ -33,7 +33,7 @@ use crate::rust::message::{
 };
 use crate::rust::reference::Reference;
 use crate::rust::socket::{ConnectError, ShutdownError};
-use crate::rust::{channel, socket};
+use crate::rust::{self, channel, socket};
 
 pub(crate) struct Listener {
     url: Arc<Url>,
@@ -45,51 +45,46 @@ pub(crate) struct Listener {
     connectivity_tx: broadcast::Sender<Connectivity>,
     state: Option<State>,
     socket_status: ObservableStatus,
+    reconnect_strategy: Option<Box<dyn ReconnectStrategy>>,
 }
+
 impl Listener {
     pub(crate) fn spawn(
         url: Arc<Url>,
         cookies: Option<Vec<String>>,
-        socket_status: ObservableStatus,
-        channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
-        state_command_rx: mpsc::Receiver<StateCommand>,
-        channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
-        channel_send_command_rx: mpsc::Receiver<ChannelSendCommand>,
-    ) -> JoinHandle<Result<(), ShutdownError>> {
-        let listener = Self::init(
-            url,
-            cookies,
-            socket_status,
-            channel_spawn_rx,
-            state_command_rx,
-            channel_state_command_rx,
-            channel_send_command_rx,
-        );
+        reconnect_strategy: Option<Box<dyn ReconnectStrategy>>,
+    ) -> Socket {
+        let status = ObservableStatus::new(rust::socket::Status::default());
+        let (channel_spawn_tx, channel_spawn_rx) = mpsc::channel(50);
+        let (state_command_tx, state_command_rx) = mpsc::channel(50);
+        let (channel_state_command_tx, channel_state_command_rx) = mpsc::channel(50);
+        let (channel_send_command_tx, channel_send_command_rx) = mpsc::channel(50);
 
-        tokio::spawn(listener.listen())
-    }
-
-    fn init(
-        url: Arc<Url>,
-        cookies: Option<Vec<String>>,
-        socket_status: ObservableStatus,
-        channel_spawn_rx: mpsc::Receiver<ChannelSpawn>,
-        state_command_rx: mpsc::Receiver<StateCommand>,
-        channel_state_command_rx: mpsc::Receiver<ChannelStateCommand>,
-        channel_send_command_rx: mpsc::Receiver<ChannelSendCommand>,
-    ) -> Self {
         let (connectivity_tx, _) = broadcast::channel(1);
 
-        Self {
-            url,
+        let listener = Self {
+            url: url.clone(),
             cookies,
-            socket_status,
+            socket_status: status.clone(),
             channel_spawn_rx,
             state_command_rx,
             channel_state_command_rx,
             channel_send_command_rx,
             connectivity_tx,
             state: Some(State::NeverConnected),
+            reconnect_strategy,
+        };
+
+        let join_handle = tokio::spawn(listener.listen());
+
+        Socket {
+            url,
+            status,
+            state_command_tx,
+            channel_spawn_tx,
+            channel_state_command_tx,
+            channel_send_command_tx,
+            join_handle: AtomicTake::new(join_handle),
         }
     }
 
@@ -101,7 +96,7 @@ impl Listener {
             let current_discriminant = mem::discriminant(&current_state);
 
             let next_state = match current_state {
-                State::NeverConnected { .. } | State::Disconnected { .. } => tokio::select! {
+                State::NeverConnected | State::Disconnected => tokio::select! {
                     Some(channel_spawn) = self.channel_spawn_rx.recv() => self.spawn_channel(current_state, channel_spawn).await,
                     Some(state_command) = self.state_command_rx.recv() => self.update_state(current_state, state_command).await,
                     else => break Ok(())
@@ -196,7 +191,19 @@ impl Listener {
                     .await
                 {
                     Ok(state) => (Ok(()), state),
-                    Err((connect_error, reconnect)) => (Err(connect_error), reconnect.wait()),
+                    Err((connect_error, reconnect)) => match self.reconnect_strategy.as_ref() {
+                        Some(strategy) => {
+                            let duration = strategy.sleep_duration(reconnect.attempts as u64);
+                            let reconnect = reconnect.next();
+
+                            let state = State::WaitingToReconnect {
+                                sleep: Box::pin(time::sleep(duration)),
+                                reconnect,
+                            };
+                            (Err(connect_error), state)
+                        }
+                        None => (Err(connect_error), reconnect.wait()),
+                    },
                 }
             }
             State::WaitingToReconnect { ref sleep, .. } => (
@@ -215,9 +222,9 @@ impl Listener {
 
     async fn disconnect(&self, state: State, disconnected_tx: oneshot::Sender<()>) -> State {
         let next_state = match state {
-            State::NeverConnected { .. }
+            State::NeverConnected
             | State::WaitingToReconnect { .. }
-            | State::Disconnected { .. }
+            | State::Disconnected
             | State::ShuttingDown
             | State::ShutDown => state,
             State::Connected(mut connected) => {
@@ -671,7 +678,20 @@ impl Listener {
     async fn reconnect(&self, reconnect: Reconnect) -> State {
         match self.socket_connect(Instant::now(), reconnect).await {
             Ok(state) => state,
-            Err((_connect_error, reconnect)) => reconnect.wait(),
+            Err((_connect_error, reconnect)) => match self.reconnect_strategy.as_ref() {
+                // Use strategy if available, otherwise emulate
+                // behavior of the JS client.
+                Some(strategy) => {
+                    let duration = strategy.sleep_duration(reconnect.attempts as u64);
+                    let reconnect = reconnect.next();
+
+                    State::WaitingToReconnect {
+                        sleep: Box::pin(time::sleep(duration)),
+                        reconnect,
+                    }
+                }
+                None => reconnect.wait(),
+            },
         }
     }
 
@@ -767,9 +787,9 @@ impl Listener {
                 connected.socket.close(None).await.ok();
                 self.shutdown_connected(connected)
             }
-            State::NeverConnected { .. }
+            State::NeverConnected
             | State::WaitingToReconnect { .. }
-            | State::Disconnected { .. }
+            | State::Disconnected
             | State::ShuttingDown
             | State::ShutDown => State::ShuttingDown,
         }
@@ -813,8 +833,8 @@ impl State {
 impl Debug for State {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            State::NeverConnected { .. } => write!(f, "NeverConnected"),
-            State::Disconnected { .. } => write!(f, "Disconnected"),
+            State::NeverConnected => write!(f, "NeverConnected"),
+            State::Disconnected => write!(f, "Disconnected"),
             State::ShuttingDown => write!(f, "ShuttingDown"),
             State::Connected(connected) => f.debug_tuple("Connected").field(connected).finish(),
             State::WaitingToReconnect {
@@ -1134,8 +1154,9 @@ impl Debug for Connected {
 
 #[derive(Copy, Clone, Debug)]
 struct Reconnect {
+    /// Constant base duration configured by user.
     connect_timeout: Duration,
-    /// Enough for > 1 week of attempts; u8 would only be 42 minutes of attempts.
+    /// Current attempt
     attempts: u16,
 }
 impl Reconnect {
