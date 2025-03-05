@@ -275,9 +275,9 @@ pub enum ChannelError {
 ///
 /// To leave a topic/channel, you can either await the result of `Channel::leave`, or
 /// drop the channel. Once all references to a specific `Channel` are dropped, if it
-/// hasn't yet left its channel, this is
-// /// You have two ways o done at that point.
-///f sending messages to the channel:
+/// hasn't yet left its channel, this is done at that point.
+///
+/// You have two ways of sending messages to the channel:
 ///
 /// * [Channel::call] to send a message and await a reply from the server
 /// * [Channel::cast] to send a message and ignore any replies
