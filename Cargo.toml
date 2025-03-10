@@ -45,7 +45,7 @@ uniffi-build = ["uniffi/build", "uniffi/cli"]
 [dependencies]
 arc-swap = "1.7.0"
 atomic-take = "1.1.0"
-bytes = "1.9.0"
+bytes = "1.10.0"
 flexstr = { version = "0.9.2", features = ["serde"] }
 futures = "0.3"
 fxhash = "0.2"
