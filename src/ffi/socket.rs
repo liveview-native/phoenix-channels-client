@@ -21,7 +21,7 @@
 //! )?;
 //!
 //! // Create a socket
-//! let socket = Socket::spawn(url, None).await;
+//! let socket = Socket::spawn(url, None, None).await;
 //! # Ok(())
 //! # }
 //! ```
@@ -48,7 +48,7 @@
 //! )?;
 //!
 //! // Create a socket
-//! let socket = Socket::spawn(url, None).await?;
+//! let socket = Socket::spawn(url, None, None).await?;
 //!
 //! // Connecting the socket returns the authorization error
 //! match socket.connect(Duration::from_secs(5)).await {
@@ -89,7 +89,7 @@
 //!     "ws://127.0.0.1:9002/socket/websocket",
 //!     &[("secret", secret.clone()), ("id", id.clone())],
 //! )?;
-//! let secret_socket = Socket::spawn(secret_url, None).await.unwrap();
+//! let secret_socket = Socket::spawn(secret_url, None, None).await.unwrap();
 //! secret_socket.connect(Duration::from_secs(10)).await?;
 //! let mut statuses = secret_socket.statuses();
 //!
@@ -124,7 +124,7 @@
 //! #         &[("shared_secret", "supersecret"), ("id", id.clone())],
 //! #     ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url, None).await.unwrap();
+//! #     let socket = Socket::spawn(url, None, None).await.unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
@@ -160,7 +160,7 @@
 //! #        &[("secret", secret), ("id", id.clone())],
 //! #    ).unwrap();
 //! #
-//! #     let socket = Socket::spawn(url, None).await.unwrap();
+//! #     let socket = Socket::spawn(url, None, None).await.unwrap();
 //! #     socket.connect(Duration::from_secs(10)).await.unwrap();
 //! #
 //! #     let channel = socket.channel(
@@ -258,10 +258,10 @@ const PHOENIX_SERIALIZER_VSN: &str = "2.0.0";
 /// related to channels is exposed there.
 #[derive(uniffi::Object)]
 pub struct Socket {
-    url: Arc<Url>,
-    status: ObservableStatus,
-    state_command_tx: mpsc::Sender<StateCommand>,
-    channel_spawn_tx: mpsc::Sender<ChannelSpawn>,
+    pub(crate) url: Arc<Url>,
+    pub(crate) status: ObservableStatus,
+    pub(crate) state_command_tx: mpsc::Sender<StateCommand>,
+    pub(crate) channel_spawn_tx: mpsc::Sender<ChannelSpawn>,
     pub(crate) channel_state_command_tx: mpsc::Sender<ChannelStateCommand>,
     pub(crate) channel_send_command_tx: mpsc::Sender<ChannelSendCommand>,
     /// The join handle corresponding to the socket listener
@@ -272,10 +272,12 @@ pub struct Socket {
 #[uniffi::export(async_runtime = "tokio")]
 impl Socket {
     /// Spawns a new [Socket] that must be [Socket::connect]ed.
+    /// This object must be [Socket::shutdown] at the end of it's lifespan.
     #[uniffi::constructor]
     pub async fn spawn(
         mut url: Url,
         cookies: Option<Vec<String>>,
+        reconnect_strategy: Option<Box<dyn ReconnectStrategy>>,
     ) -> Result<Arc<Self>, SpawnError> {
         match url.scheme() {
             "wss" | "ws" => (),
@@ -289,30 +291,10 @@ impl Socket {
         }
 
         let url = Arc::new(url);
-        let status = ObservableStatus::new(rust::socket::Status::default());
-        let (channel_spawn_tx, channel_spawn_rx) = mpsc::channel(50);
-        let (state_command_tx, state_command_rx) = mpsc::channel(50);
-        let (channel_state_command_tx, channel_state_command_rx) = mpsc::channel(50);
-        let (channel_send_command_tx, channel_send_command_rx) = mpsc::channel(50);
-        let join_handle = Listener::spawn(
-            url.clone(),
-            cookies.clone(),
-            status.clone(),
-            channel_spawn_rx,
-            state_command_rx,
-            channel_state_command_rx,
-            channel_send_command_rx,
-        );
 
-        Ok(Arc::new(Self {
-            url,
-            status,
-            channel_spawn_tx,
-            state_command_tx,
-            channel_state_command_tx,
-            channel_send_command_tx,
-            join_handle: AtomicTake::new(join_handle),
-        }))
+        let socket = Listener::spawn(url.clone(), cookies.clone(), reconnect_strategy);
+
+        Ok(Arc::new(socket))
     }
 
     /// The `url` passed to [Socket::spawn]
@@ -420,6 +402,14 @@ impl Socket {
             Err(_) => Err(self.listener_shutdown().await.unwrap_err().into()),
         }
     }
+}
+
+/// Provides an interface for controlling sleep duration while the LiveSocket is attempting to reconnect
+#[uniffi::export(callback_interface)]
+pub trait ReconnectStrategy: Send + Sync {
+    /// This should return a duration for the given attempt number `attempt`, you
+    /// can use this interface to implement exponential and linear backoff strategies
+    fn sleep_duration(&self, attempt: u64) -> Duration;
 }
 
 /// The status of the [Socket].
